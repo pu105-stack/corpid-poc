@@ -314,8 +314,10 @@ app.post('/api/callback/formfill', async (req, res) => {
     }
     const data = corpid.decryptCallback(content, secretKey || null);
     console.log('[FormFill Callback] decrypted OK. Keys:', Object.keys(data));
-    console.log('[FormFill Callback] storing result for txID:', txID);
-    storeFormFillResult(txID, data);
+    // txID comes back as "<T=uuid>" — normalise to just the uuid to match ticketID
+    const normalizedID = txID.replace(/^<T=(.+)>$/, '$1');
+    console.log('[FormFill Callback] storing result for normalizedID:', normalizedID);
+    storeFormFillResult(normalizedID, data);
     console.log('[FormFill Callback] Map size now:', formFillResults.size);
   } catch (err) {
     console.error('[FormFill Callback] decrypt error:', err.message);
