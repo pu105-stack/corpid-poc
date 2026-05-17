@@ -8,7 +8,7 @@
  * All methods are async so callers work the same way in both environments.
  */
 
-const IS_VERCEL = !!process.env.VERCEL;
+const IS_VERCEL = !!process.env.VERCEL && !!process.env.KV_REST_API_URL;
 
 // ---------------------------------------------------------------------------
 // In-memory store (localhost)

@@ -18,11 +18,14 @@ const {
   CORPID_CLIENT_SECRET,
   IAMSMART_CLIENT_ID,
   IAMSMART_CLIENT_SECRET,
-  KEK_P12_PATH   = path.join(__dirname, '../../account-centre-kek.p12'),
-  KEK_P12_PIN    = '8568185550716550',
+  KEK_P12_PATH    = path.join(__dirname, '../../account-centre-kek.p12'),
+  KEK_P12_PIN     = '8568185550716550',
   KEK_P12_BASE64,
-  PORT           = 3000,
+  CALLBACK_BASE_URL,
+  PORT            = 3000,
 } = process.env;
+
+const BASE_URL = CALLBACK_BASE_URL || `http://localhost:${PORT}`;
 
 if (!CORPID_CLIENT_ID || !CORPID_CLIENT_SECRET) {
   console.error('ERROR: CORPID_CLIENT_ID and CORPID_CLIENT_SECRET must be set in .env');
@@ -58,7 +61,7 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 app.get('/api/debug-qr', (req, res) => {
   const state       = 'debug-state-123';
-  const redirectURI = `http://localhost:${PORT}/auth/callback`;
+  const redirectURI = `${BASE_URL}/auth/callback`;
   const qrUrl       = buildCorpIDQRUrl({ redirectURI, state });
 
   res.json({
@@ -96,7 +99,7 @@ function buildCorpIDQRUrl({ redirectURI, state }) {
 
 app.get('/api/login', async (req, res) => {
   const state       = crypto.randomUUID();
-  const redirectURI = `http://localhost:${PORT}/auth/callback`;
+  const redirectURI = `${BASE_URL}/auth/callback`;
 
   await sessions.set(state, { phase: 'pending', createdAt: Date.now() });
 
