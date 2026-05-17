@@ -43,6 +43,8 @@ class CorpIDClient {
     const body = buildGetKeyBody(this.clientID, this.clientSecret);
     const res  = await axios.post(`${CORPID_BASE}/api/v1/security/getKey`, body);
 
+    console.log('[CorpID] getKey response code:', res.data.code);
+
     if (res.data.code !== 'M00000') {
       throw new Error(`CEK request failed [${res.data.code}]: ${res.data.msg}`);
     }
@@ -60,19 +62,23 @@ class CorpIDClient {
   async _post(path, bodyObj) {
     await this._ensureCEK();
 
-    const timestamp      = Date.now();
-    const nonce          = require('crypto').randomUUID();
+    const timestamp        = Date.now();
+    const nonce            = require('crypto').randomUUID();
     const encryptedContent = encryptBody(bodyObj, this._cek);
-    const headers        = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, encryptedContent);
+    const requestBody      = { content: encryptedContent };
+    const bodyStr          = JSON.stringify(requestBody);
+    const headers          = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, bodyStr);
+
+    console.log('[CorpID] POST', path, 'bodyStr len:', bodyStr.length);
 
     const res = await axios.post(
       `${CORPID_BASE}${path}`,
-      { content: encryptedContent },
+      requestBody,
       { headers }
     );
 
     const data = res.data;
-    // Decrypt the content field if it came back as an encrypted string
+    console.log('[CorpID] POST', path, 'HTTP', res.status, 'code:', data.code);
     if (data.content && typeof data.content === 'string') {
       data.content = decryptBody(data.content, this._cek);
     }
@@ -89,6 +95,7 @@ class CorpIDClient {
    * Returns: { accessToken, openID, tokenType, scope, ... }
    */
   async getToken(corpidAuthCode, iamAccessToken, iamOpenID) {
+    console.log('[CorpID] getToken corpMockCode:', corpidAuthCode?.slice(0, 8), 'iamTokenLen:', iamAccessToken?.length);
     const res = await this._post('/api/v1/auth/getToken', {
       ticketID:              corpidAuthCode,
       grantType:             'authorization_code',
@@ -96,6 +103,7 @@ class CorpIDClient {
       iAMSmart_TokenizedID:  iamOpenID,
     });
 
+    console.log('[CorpID] getToken response code:', res.code, 'msg:', res.msg);
     if (res.code !== 'M00000') {
       throw new Error(`CorpID getToken failed [${res.code}]: ${res.msg}`);
     }
