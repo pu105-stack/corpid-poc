@@ -290,24 +290,35 @@ app.post('/api/formfill', async (req, res) => {
 // FORM PRE-FILL — Step 2: callback from CorpID (server-to-server push)
 // ---------------------------------------------------------------------------
 
-app.post('/api/callback/formfill', (req, res) => {
-  console.log('[FormFill Callback] received body keys:', Object.keys(req.body));
+app.post('/api/callback/formfill', async (req, res) => {
+  console.log('[FormFill Callback] HIT — body keys:', Object.keys(req.body));
+  console.log('[FormFill Callback] raw body:', JSON.stringify(req.body));
+
   const { txID, code, msg, secretKey, content } = req.body;
+  console.log('[FormFill Callback] txID:', txID, 'code:', code, 'hasSecretKey:', !!secretKey, 'hasContent:', !!content);
+
+  // Always ACK immediately to CorpID
+  res.status(200).json({ code: 'M00000' });
 
   if (code !== 'M00000') {
     console.error('[FormFill Callback] non-success code:', code, msg);
-    return res.status(200).json({ code: 'M00000' }); // always ACK
+    return;
   }
 
   try {
+    // On cold start _cek may be null — refresh it if no secretKey provided
+    if (!secretKey && !corpid._cek) {
+      console.log('[FormFill Callback] no CEK cached and no secretKey in callback, fetching CEK...');
+      await corpid._ensureCEK();
+    }
     const data = corpid.decryptCallback(content, secretKey || null);
-    console.log('[FormFill Callback] decrypted OK, txID:', txID);
+    console.log('[FormFill Callback] decrypted OK. Keys:', Object.keys(data));
+    console.log('[FormFill Callback] storing result for txID:', txID);
     storeFormFillResult(txID, data);
+    console.log('[FormFill Callback] Map size now:', formFillResults.size);
   } catch (err) {
     console.error('[FormFill Callback] decrypt error:', err.message);
   }
-
-  res.status(200).json({ code: 'M00000' });
 });
 
 // ---------------------------------------------------------------------------
@@ -316,9 +327,21 @@ app.post('/api/callback/formfill', (req, res) => {
 
 app.get('/api/formfill/:ticketID', (req, res) => {
   const { ticketID } = req.params;
+  console.log('[FormFill Poll] ticketID:', ticketID, '| Map keys:', [...formFillResults.keys()]);
   const data = getFormFillResult(ticketID);
   if (!data) return res.json({ status: 'pending' });
+  console.log('[FormFill Poll] found result, returning done');
   res.json({ status: 'done', data });
+});
+
+// Show what's currently in the result Map (without consuming entries)
+app.get('/api/formfill-debug', (_req, res) => {
+  const entries = [...formFillResults.entries()].map(([k, v]) => ({
+    ticketID: k,
+    expiresIn: Math.round((v.expiresAt - Date.now()) / 1000) + 's',
+    dataKeys: Object.keys(v.data),
+  }));
+  res.json({ mapSize: formFillResults.size, entries });
 });
 
 // ---------------------------------------------------------------------------
