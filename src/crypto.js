@@ -58,10 +58,11 @@ function decryptCEK(encryptedSecretKeyBase64, privateKey) {
   for (const attempt of attempts) {
     try {
       const plain = attempt();
-      return Buffer.from(plain, 'binary');
+      const buf = Buffer.from(plain, 'binary');
+      if (buf.length === 32) return buf; // AES-256-GCM requires exactly 32 bytes
     } catch (_) { /* try next */ }
   }
-  throw new Error('Failed to decrypt CEK with any RSA variant');
+  throw new Error('Failed to decrypt CEK with any RSA variant (no attempt produced a 32-byte key)');
 }
 
 // ---------------------------------------------------------------------------
