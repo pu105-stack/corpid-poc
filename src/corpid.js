@@ -70,12 +70,22 @@ class CorpIDClient {
     const bodyStr          = JSON.stringify(requestBody);
     const headers          = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, bodyStr);
 
-    console.log('[CorpID] POST', path, 'clientID:', this.clientID?.slice(0, 8));
+    console.log('[CorpID] POST', path);
+    console.log('[CorpID]   headers:', JSON.stringify(headers));
+    console.log('[CorpID]   body keys:', Object.keys(requestBody).join(', '));
+    console.log('[CorpID]   content length:', encryptedContent.length);
 
-    const res = await axios.post(`${CORPID_BASE}${path}`, requestBody, { headers });
+    let res;
+    try {
+      res = await axios.post(`${CORPID_BASE}${path}`, requestBody, { headers });
+    } catch (err) {
+      console.error('[CorpID] HTTP error:', err.response?.status, JSON.stringify(err.response?.data));
+      throw err;
+    }
 
     const data = res.data;
-    console.log('[CorpID] POST', path, 'HTTP', res.status, 'code:', data.code);
+    console.log('[CorpID] POST', path, '→ HTTP', res.status, 'code:', data.code, 'msg:', data.msg || '');
+    console.log('[CorpID]   raw response:', JSON.stringify(data).slice(0, 300));
     if (data.content && typeof data.content === 'string') {
       data.content = decryptBody(data.content, this._cek);
     }
