@@ -65,16 +65,28 @@ class CorpIDClient {
     const timestamp        = Date.now();
     const nonce            = require('crypto').randomUUID();
     const encryptedContent = encryptBody(bodyObj, this._cek);
-    const requestBody      = { content: encryptedContent };
-    const bodyStr          = JSON.stringify(requestBody);
-    const headers          = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, bodyStr);
 
-    console.log('[CorpID] POST', path, 'bodyStr len:', bodyStr.length);
+    // CorpID spec: auth params + content all go in the request BODY (not headers)
+    // Signature message = clientID + "HmacSHA256" + timestamp + nonce + encryptedContent
+    const message = this.clientID + 'HmacSHA256' + String(timestamp) + nonce + encryptedContent;
+    const crypto  = require('crypto');
+    const sig     = crypto.createHmac('sha256', this.clientSecret).update(message).digest('base64');
+
+    const requestBody = {
+      clientID:        this.clientID,
+      signatureMethod: 'HmacSHA256',
+      signature:       encodeURIComponent(sig),
+      timestamp:       timestamp,
+      nonce:           nonce,
+      content:         encryptedContent,
+    };
+
+    console.log('[CorpID] POST', path, 'clientID:', this.clientID?.slice(0, 8));
 
     const res = await axios.post(
       `${CORPID_BASE}${path}`,
       requestBody,
-      { headers }
+      { headers: { 'Content-Type': 'application/json' } }
     );
 
     const data = res.data;
