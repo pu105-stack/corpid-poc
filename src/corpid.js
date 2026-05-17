@@ -40,24 +40,11 @@ class CorpIDClient {
   }
 
   async _requestCEK() {
-    const body = buildGetKeyBody(this.clientID, this.clientSecret);
-    let res;
-    try {
-      res = await axios.post(`${CORPID_BASE}/api/v1/security/getKey`, body);
-      console.log('[CorpID] getKey (body) response code:', res.data.code);
-    } catch (bodyErr) {
-      console.warn('[CorpID] getKey (body) failed:', bodyErr.response?.status, JSON.stringify(bodyErr.response?.data));
-      // Fallback: header-based auth
-      const { clientID, signatureMethod, signature, timestamp, nonce } = body;
-      const headers = { clientID, signatureMethod, signature, timestamp: String(timestamp), nonce };
-      try {
-        res = await axios.post(`${CORPID_BASE}/api/v1/security/getKey`, null, { headers });
-        console.log('[CorpID] getKey (headers) response code:', res.data.code);
-      } catch (hdrErr) {
-        console.error('[CorpID] getKey (headers) failed:', hdrErr.response?.status, JSON.stringify(hdrErr.response?.data));
-        throw hdrErr;
-      }
-    }
+    // CorpID getKey requires auth params in headers (body-based auth rejected by sandbox)
+    const { clientID, signatureMethod, signature, timestamp, nonce } = buildGetKeyBody(this.clientID, this.clientSecret);
+    const headers = { clientID, signatureMethod, signature, timestamp: String(timestamp), nonce };
+    const res = await axios.post(`${CORPID_BASE}/api/v1/security/getKey`, null, { headers });
+
     console.log('[CorpID] getKey response code:', res.data.code);
 
     if (res.data.code !== 'M00000') {
