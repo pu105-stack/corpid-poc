@@ -125,7 +125,6 @@ class CorpIDClient {
       openID,
       clientID_iAM,
       source:              'PC_Browser',
-      iamFormfill:         true,   // get both corporate + personal data
       redirectURI,
       state,
       formName:            'CorpID PoC – Account Registration',
@@ -141,10 +140,6 @@ class CorpIDClient {
         'corpID', 'brn', 'corpNameEN', 'corpNameTC', 'corpAddr',
         'corpTypeEN', 'corpTel', 'corpStatusEN', 'placeOfIncorp', 'dateOfReg',
       ],
-
-      // Personal fields from the linked iAM Smart user
-      corpUserProfileFields: ['id_cty_issue', 'id_type'],
-      profileFields:         ['enName', 'chName', 'emailAddress', 'mobileNumber'],
     });
 
     if (res.code !== 'M00000') {
