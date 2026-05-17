@@ -218,6 +218,7 @@ app.get('/api/logout', (_req, res) => {
 app.get('/api/debug-creds', (_req, res) => {
   const show = (s) => s ? `len=${s.length} [${s.slice(0,4)}...${s.slice(-4)}]` : 'MISSING';
   res.json({
+    version:                'v3-stateless-cookies',
     CORPID_CLIENT_ID:       show(CORPID_CLIENT_ID),
     CORPID_CLIENT_SECRET:   show(CORPID_CLIENT_SECRET),
     IAMSMART_CLIENT_ID:     show(IAMSMART_CLIENT_ID),

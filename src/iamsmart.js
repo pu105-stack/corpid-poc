@@ -35,12 +35,20 @@ class IamSmartClient {
   }
 
   async _requestCEK() {
-    // iAM Smart expects common params in headers (not body) for all endpoints
     const timestamp = Date.now();
     const nonce     = generateNonce();
-    const headers   = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, '', false);
+    const headers   = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, '', true);
+
+    const signMsg = this.clientID + 'HmacSHA256' + timestamp + nonce + '';
+    console.log('[iAM CEK] clientID       :', this.clientID);
+    console.log('[iAM CEK] clientSecret   :', this.clientSecret.slice(0,4) + '...' + this.clientSecret.slice(-4), 'len=' + this.clientSecret.length);
+    console.log('[iAM CEK] timestamp      :', timestamp);
+    console.log('[iAM CEK] nonce          :', nonce);
+    console.log('[iAM CEK] sign message   :', signMsg);
+    console.log('[iAM CEK] headers sent   :', JSON.stringify(headers));
 
     const res = await axios.post(`${IAM_BASE}/api/v1/security/getKey`, null, { headers });
+    console.log('[iAM CEK] response       :', JSON.stringify(res.data));
 
     if (res.data.code !== 'D00000') {
       throw new Error(`iAM Smart CEK request failed [${res.data.code}]: ${res.data.msg || res.data.message}`);
@@ -58,10 +66,19 @@ class IamSmartClient {
     const timestamp        = Date.now();
     const nonce            = generateNonce();
     const encryptedContent = encryptBody(bodyObj, this._cek);
-    // iAM Smart does not include the encrypted body in the HMAC message (unlike CorpID)
-    const headers          = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, '', false);
+    const requestBody      = { content: encryptedContent };
+    const bodyStr          = JSON.stringify(requestBody);
 
-    const res  = await axios.post(`${IAM_BASE}${path}`, { content: encryptedContent }, { headers });
+    // Try full JSON body string as the "encrypted_request_body" in the signature message
+    const headers = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, bodyStr, true);
+
+    console.log('[iAM POST] path          :', path);
+    console.log('[iAM POST] encContent len:', encryptedContent.length);
+    console.log('[iAM POST] bodyStr len   :', bodyStr.length);
+    console.log('[iAM POST] headers sent  :', JSON.stringify(headers));
+
+    const res  = await axios.post(`${IAM_BASE}${path}`, requestBody, { headers });
+    console.log('[iAM POST] response      :', JSON.stringify(res.data).slice(0, 300));
     const data = res.data;
 
     if (data.content && typeof data.content === 'string') {
@@ -72,35 +89,19 @@ class IamSmartClient {
 
   // -------------------------------------------------------------------------
   // Token exchange
-  // Doc example shows: unencrypted body + URL-encoded signature (unlike _post)
   // -------------------------------------------------------------------------
 
   async getToken(authCode) {
-    const timestamp = Date.now();
-    const nonce     = generateNonce();
-    // No encrypted body in the signature message for getToken
-    const headers   = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, '', true);
-
-    const res = await axios.post(`${IAM_BASE}/api/v1/auth/getToken`, {
+    const res = await this._post('/api/v1/auth/getToken', {
       code:      authCode,
       grantType: 'authorization_code',
-    }, { headers });
+    });
 
-    const data = res.data;
-    if (data.content && typeof data.content === 'string') {
-      data.content = decryptBody(data.content, await this._getOrFetchCEK());
+    if (res.code !== 'D00000') {
+      throw new Error(`iAM Smart getToken failed [${res.code}]: ${res.message || res.msg}`);
     }
 
-    if (data.code !== 'D00000') {
-      throw new Error(`iAM Smart getToken failed [${data.code}]: ${data.message || data.msg}`);
-    }
-
-    return data.content; // { accessToken, openID, userType, scope, ... }
-  }
-
-  async _getOrFetchCEK() {
-    await this._ensureCEK();
-    return this._cek;
+    return res.content; // { accessToken, openID, userType, scope, ... }
   }
 }
 
