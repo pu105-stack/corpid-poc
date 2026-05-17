@@ -239,17 +239,27 @@ app.get('/api/logout', (_req, res) => {
 // Form pre-fill — in-memory result store (keyed by ticketID, 5-min TTL)
 // ---------------------------------------------------------------------------
 
-const formFillResults = new Map(); // ticketID → { data, expiresAt }
+const formFillResults = new Map(); // in-memory (same instance)
+const fs = require('fs');
 
 function storeFormFillResult(ticketID, data) {
+  const payload = JSON.stringify({ data, expiresAt: Date.now() + 5 * 60_000 });
   formFillResults.set(ticketID, { data, expiresAt: Date.now() + 5 * 60_000 });
+  try { fs.writeFileSync(`/tmp/ff_${ticketID}.json`, payload); } catch (_) {}
 }
 
 function getFormFillResult(ticketID) {
-  const entry = formFillResults.get(ticketID);
+  // Try in-memory first, then /tmp (survives across warm Vercel instances)
+  let entry = formFillResults.get(ticketID);
+  if (!entry) {
+    try {
+      entry = JSON.parse(fs.readFileSync(`/tmp/ff_${ticketID}.json`, 'utf8'));
+    } catch (_) {}
+  }
   if (!entry) return null;
-  if (Date.now() > entry.expiresAt) { formFillResults.delete(ticketID); return null; }
-  formFillResults.delete(ticketID); // one-time read
+  formFillResults.delete(ticketID);
+  try { fs.unlinkSync(`/tmp/ff_${ticketID}.json`); } catch (_) {}
+  if (Date.now() > entry.expiresAt) return null;
   return entry.data;
 }
 

@@ -288,21 +288,25 @@
     document.getElementById('prefill-waiting').style.display = 'none';
     document.getElementById('prefill-btn').disabled = false;
 
+    // Callback data is nested: { corp: {...}, iAM: {...} }
+    const corp = data.corp || data;
+    const iam  = data.iAM  || data;
+
     const fields = [
-      ['Corp ID',          data.corpID       || data.corpid],
-      ['BRN / UBI',        data.brn],
-      ['Company (EN)',     data.corpNameEN],
-      ['Company (TC)',     data.corpNameTC],
-      ['Address',         data.corpAddr],
-      ['Corp Type',        data.corpTypeEN],
-      ['Phone',            data.corpTel],
-      ['Status',           data.corpStatusEN],
-      ['Place of Incorp',  data.placeOfIncorp],
-      ['Date of Reg',      data.dateOfReg],
-      ['Name (EN)',        data.enName],
-      ['Name (CH)',        data.chName],
-      ['Email',            data.emailAddress],
-      ['Mobile',           data.mobileNumber],
+      ['Corp ID',          corp.corpID       || corp.corpid],
+      ['BRN / UBI',        corp.brn],
+      ['Company (EN)',     corp.corpNameEN],
+      ['Company (TC)',     corp.corpNameTC],
+      ['Address',          corp.corpAddr],
+      ['Corp Type',        corp.corpTypeEN],
+      ['Phone',            corp.corpTel],
+      ['Status',           corp.corpStatusEN],
+      ['Place of Incorp',  corp.placeOfIncorp],
+      ['Date of Reg',      corp.dateOfReg],
+      ['Name (EN)',        iam.enName],
+      ['Name (CH)',        iam.chName],
+      ['Email',            iam.emailAddress],
+      ['Mobile',           iam.mobileNumber],
     ].filter(([, v]) => v);
 
     const grid = document.getElementById('prefill-grid');
