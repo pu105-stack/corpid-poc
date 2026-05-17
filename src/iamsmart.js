@@ -77,29 +77,16 @@ class IamSmartClient {
   // Token exchange
   // -------------------------------------------------------------------------
 
-  // Per developer guide: getToken body is sent UNENCRYPTED (plain JSON),
-  // auth params in headers, empty string in signature body component.
   async getToken(authCode) {
-    await this._ensureCEK(); // still need CEK for future calls; safe to call here
-
-    const timestamp   = Date.now();
-    const nonce       = generateNonce();
-    const requestBody = { code: authCode, grantType: 'authorization_code' };
-    // Body is plain JSON (unencrypted); signature uses the full body JSON string
-    const bodyStr     = JSON.stringify(requestBody);
-    const headers     = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, bodyStr, true);
-
-    console.log('[iAM Smart] getToken (unencrypted) code:', authCode?.slice(0, 8));
-    const res = await axios.post(`${IAM_BASE}/api/v1/auth/getToken`, requestBody, { headers });
-    console.log('[iAM Smart] getToken response code:', res.data.code);
-
-    const data = res.data;
-    if (data.code !== 'D00000') {
-      throw new Error(`iAM Smart getToken failed [${data.code}]: ${data.message || data.msg}`);
+    console.log('[iAM Smart] getToken code:', authCode?.slice(0, 8));
+    const res = await this._post('/api/v1/auth/getToken', {
+      code:      authCode,
+      grantType: 'authorization_code',
+    });
+    if (res.code !== 'D00000') {
+      throw new Error(`iAM Smart getToken failed [${res.code}]: ${res.message || res.msg}`);
     }
-
-    // Response content is plain JSON (not encrypted) per developer guide
-    return data.content; // { accessToken, openID, userType, scope, ... }
+    return res.content; // { accessToken, openID, userType, scope, ... }
   }
 }
 
