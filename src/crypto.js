@@ -59,13 +59,15 @@ function decryptCEK(encryptedSecretKeyBase64, privateKey) {
     try {
       const plain = attempts[i]();
       const buf = Buffer.from(plain, 'binary');
-      console.log(`[decryptCEK] variant ${i}: success, length=${buf.length}`);
-      if (buf.length === 32) return buf; // AES-256-GCM requires exactly 32 bytes
-    } catch (e) {
-      console.log(`[decryptCEK] variant ${i}: threw: ${e.message?.slice(0, 80)}`);
-    }
+      if (buf.length === 32) return buf;
+      // Callback secretKey decrypts to a base64-encoded 32-byte key (44 chars)
+      if (buf.length === 44) {
+        const decoded = Buffer.from(buf.toString('utf8'), 'base64');
+        if (decoded.length === 32) return decoded;
+      }
+    } catch (_) { /* try next */ }
   }
-  throw new Error('Failed to decrypt CEK with any RSA variant (no attempt produced a 32-byte key)');
+  throw new Error('Failed to decrypt CEK with any RSA variant');
 }
 
 // ---------------------------------------------------------------------------
