@@ -145,7 +145,6 @@ class CorpIDClient {
       // Personal fields from the linked iAM Smart user
       corpUserProfileFields: ['id_cty_issue', 'id_type'],
       profileFields:         ['enName', 'chName', 'emailAddress', 'mobileNumber'],
-      eMEFields:             [],
     });
 
     if (res.code !== 'M00000') {
