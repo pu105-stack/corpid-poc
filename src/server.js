@@ -7,6 +7,7 @@ const path    = require('path');
 const { loadPrivateKeyFromP12 } = require('./crypto');
 const CorpIDClient              = require('./corpid');
 const IamSmartClient            = require('./iamsmart');
+const sessions                  = require('./session-store');
 
 // ---------------------------------------------------------------------------
 // Config
@@ -39,8 +40,6 @@ const privateKey = loadPrivateKeyFromP12(KEK_P12_PATH, KEK_P12_PIN);
 const corpid     = new CorpIDClient(CORPID_CLIENT_ID, CORPID_CLIENT_SECRET, privateKey);
 const iamsmart   = new IamSmartClient(IAMSMART_CLIENT_ID, IAMSMART_CLIENT_SECRET, privateKey);
 
-// In-memory session store (demo only)
-const sessions = new Map();
 
 // ---------------------------------------------------------------------------
 // App
@@ -92,11 +91,11 @@ function buildCorpIDQRUrl({ redirectURI, state }) {
 // STEP 1 — Redirect browser to CorpID QR page
 // ---------------------------------------------------------------------------
 
-app.get('/api/login', (req, res) => {
+app.get('/api/login', async (req, res) => {
   const state       = crypto.randomUUID();
   const redirectURI = `http://localhost:${PORT}/auth/callback`;
 
-  sessions.set(state, { phase: 'pending', createdAt: Date.now() });
+  await sessions.set(state, { phase: 'pending', createdAt: Date.now() });
 
   const qrUrl = buildCorpIDQRUrl({ redirectURI, state });
 
@@ -120,7 +119,7 @@ app.get('/auth/callback', async (req, res) => {
     return res.redirect(`/?error=${encodeURIComponent(error_code)}`);
   }
 
-  const session = sessions.get(state);
+  const session = await sessions.get(state);
   if (!session) {
     console.error('[Callback] Unknown state:', state);
     return res.redirect('/?error=invalid_state');
@@ -141,7 +140,7 @@ app.get('/auth/callback', async (req, res) => {
     const corpTokens = await corpid.getToken(corpMockCode, iamTokens.accessToken, iamTokens.openID);
     console.log('[Auth] CorpID OK. openID:', corpTokens.openID);
 
-    sessions.set(state, {
+    await sessions.set(state, {
       phase:        'authenticated',
       accessToken:  corpTokens.accessToken,
       openID:       corpTokens.openID,
@@ -164,8 +163,8 @@ app.get('/auth/callback', async (req, res) => {
 // STEP 3 — Frontend fetches session details after redirect
 // ---------------------------------------------------------------------------
 
-app.get('/api/session/:state', (req, res) => {
-  const session = sessions.get(req.params.state);
+app.get('/api/session/:state', async (req, res) => {
+  const session = await sessions.get(req.params.state);
   if (!session || session.phase !== 'authenticated') {
     return res.status(401).json({ error: 'Not authenticated' });
   }
