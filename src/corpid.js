@@ -14,8 +14,8 @@ const {
   decryptCEK,
   encryptBody,
   decryptBody,
+  buildAuthHeaders,
   buildGetKeyBody,
-  buildPostBody,
 } = require('./crypto');
 
 const CORPID_BASE = 'https://corpid.cyberport.hk';
@@ -62,13 +62,17 @@ class CorpIDClient {
   async _post(path, bodyObj) {
     await this._ensureCEK();
 
+    const timestamp        = Date.now();
+    const nonce            = require('crypto').randomUUID();
     const encryptedContent = encryptBody(bodyObj, this._cek);
-    // Per spec section 3.1.2: auth params go in body alongside content (same pattern as getKey)
-    const body             = buildPostBody(this.clientID, this.clientSecret, encryptedContent);
+    const requestBody      = { content: encryptedContent };
+    // Signature uses full JSON body string — same pattern as iAM Smart _post
+    const bodyStr          = JSON.stringify(requestBody);
+    const headers          = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, bodyStr);
 
     console.log('[CorpID] POST', path, 'clientID:', this.clientID?.slice(0, 8));
 
-    const res = await axios.post(`${CORPID_BASE}${path}`, body);
+    const res = await axios.post(`${CORPID_BASE}${path}`, requestBody, { headers });
 
     const data = res.data;
     console.log('[CorpID] POST', path, 'HTTP', res.status, 'code:', data.code);
