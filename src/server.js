@@ -215,6 +215,17 @@ app.get('/api/logout', (_req, res) => {
 // DEBUG
 // ---------------------------------------------------------------------------
 
+app.get('/api/debug-creds', (_req, res) => {
+  const show = (s) => s ? `len=${s.length} [${s.slice(0,4)}...${s.slice(-4)}]` : 'MISSING';
+  res.json({
+    CORPID_CLIENT_ID:       show(CORPID_CLIENT_ID),
+    CORPID_CLIENT_SECRET:   show(CORPID_CLIENT_SECRET),
+    IAMSMART_CLIENT_ID:     show(IAMSMART_CLIENT_ID),
+    IAMSMART_CLIENT_SECRET: show(IAMSMART_CLIENT_SECRET),
+    BASE_URL,
+  });
+});
+
 app.get('/api/debug-qr', (_req, res) => {
   const state       = 'debug-state-123';
   const redirectURI = `${BASE_URL}/auth/callback`;
