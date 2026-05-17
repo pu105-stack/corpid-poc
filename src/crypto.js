@@ -55,12 +55,15 @@ function decryptCEK(encryptedSecretKeyBase64, privateKey) {
     () => privateKey.decrypt(encrypted, 'RSAES-PKCS1-V1_5'),   // PKCS#1 v1.5 fallback
   ];
 
-  for (const attempt of attempts) {
+  for (let i = 0; i < attempts.length; i++) {
     try {
-      const plain = attempt();
+      const plain = attempts[i]();
       const buf = Buffer.from(plain, 'binary');
+      console.log(`[decryptCEK] variant ${i}: success, length=${buf.length}`);
       if (buf.length === 32) return buf; // AES-256-GCM requires exactly 32 bytes
-    } catch (_) { /* try next */ }
+    } catch (e) {
+      console.log(`[decryptCEK] variant ${i}: threw: ${e.message?.slice(0, 80)}`);
+    }
   }
   throw new Error('Failed to decrypt CEK with any RSA variant (no attempt produced a 32-byte key)');
 }
