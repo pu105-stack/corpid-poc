@@ -174,9 +174,8 @@
 </div>
 
 <script>
-  const params       = new URLSearchParams(location.search);
-  const sessionState = params.get('session');
-  const errorParam   = params.get('error');
+  const params     = new URLSearchParams(location.search);
+  const errorParam = params.get('error');
 
   if (errorParam) {
     const banner = document.getElementById('error-banner');
@@ -184,19 +183,17 @@
     banner.style.display = 'block';
   }
 
-  if (sessionState) {
-    fetch(`/api/session/${encodeURIComponent(sessionState)}`)
-      .then(r => r.json())
-      .then(data => {
-        if (!data.authenticated) return;
-        document.getElementById('login-card').style.display   = 'none';
-        document.getElementById('result-card').style.display  = 'block';
-        document.getElementById('val-openid').textContent   = data.openID   || '—';
-        document.getElementById('val-usertype').textContent = data.userType || '—';
-        document.getElementById('val-scope').textContent    = data.scope    || '—';
-      })
-      .catch(() => {});
-  }
+  fetch('/api/me')
+    .then(r => r.json())
+    .then(data => {
+      if (!data.authenticated) return;
+      document.getElementById('login-card').style.display  = 'none';
+      document.getElementById('result-card').style.display = 'block';
+      document.getElementById('val-openid').textContent    = data.openID   || '—';
+      document.getElementById('val-usertype').textContent  = data.userType || '—';
+      document.getElementById('val-scope').textContent     = data.scope    || '—';
+    })
+    .catch(() => {});
 </script>
 </body>
 </html>

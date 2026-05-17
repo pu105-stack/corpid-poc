@@ -42,7 +42,7 @@ class IamSmartClient {
     const nonce     = generateNonce();
     const headers   = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, '', false);
 
-    const res = await axios.post(`${IAM_BASE}/api/v1/security/getKey`, {}, { headers });
+    const res = await axios.post(`${IAM_BASE}/api/v1/security/getKey`, null, { headers });
 
     if (res.data.code !== 'D00000') {
       throw new Error(`iAM Smart CEK request failed [${res.data.code}]: ${res.data.msg || res.data.message}`);
