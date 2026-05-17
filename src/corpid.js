@@ -41,13 +41,26 @@ class CorpIDClient {
 
   async _requestCEK() {
     const body = buildGetKeyBody(this.clientID, this.clientSecret);
-    console.log('[CorpID] getKey request clientID:', body.clientID?.slice(0, 8), 'ts:', body.timestamp);
+    console.log('[CorpID] getKey body:', JSON.stringify(body));
+
+    // Try 1: body-based auth (per spec 2.3.6.1.2)
     let res;
     try {
       res = await axios.post(`${CORPID_BASE}/api/v1/security/getKey`, body);
-    } catch (err) {
-      console.error('[CorpID] getKey HTTP error:', err.response?.status, JSON.stringify(err.response?.data));
-      throw err;
+      console.log('[CorpID] getKey (body) response code:', res.data.code);
+    } catch (bodyErr) {
+      console.warn('[CorpID] getKey (body) failed:', bodyErr.response?.status, JSON.stringify(bodyErr.response?.data));
+      // Try 2: header-based auth (like iAM Smart)
+      const { clientID, signatureMethod, signature, timestamp, nonce } = body;
+      const headers = { clientID, signatureMethod, signature, timestamp: String(timestamp), nonce };
+      console.log('[CorpID] getKey retry with headers:', JSON.stringify(headers));
+      try {
+        res = await axios.post(`${CORPID_BASE}/api/v1/security/getKey`, null, { headers });
+        console.log('[CorpID] getKey (headers) response code:', res.data.code);
+      } catch (hdrErr) {
+        console.error('[CorpID] getKey (headers) also failed:', hdrErr.response?.status, JSON.stringify(hdrErr.response?.data));
+        throw hdrErr;
+      }
     }
     console.log('[CorpID] getKey response code:', res.data.code);
 
