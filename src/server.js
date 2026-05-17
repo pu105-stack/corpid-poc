@@ -115,7 +115,7 @@ function buildCorpIDQRUrl({ redirectURI, state }) {
     responseType: 'code',
     source:       'PC_Browser',
     redirectURI,
-    scope:        'eidapi_auth eidapi_profiles',
+    scope:        'eidapi_auth',
     state,
     lang:         'en-US',
     corpMock:     'true',
