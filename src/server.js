@@ -199,10 +199,14 @@ app.get('/auth/callback', async (req, res) => {
     res.redirect('/');
   } catch (err) {
     console.error('[Auth] Error:', err.message);
+    let detail = err.message;
     if (err.response) {
-      console.error('[Auth] Response:', JSON.stringify(err.response.data, null, 2));
+      const body = err.response.data;
+      console.error('[Auth] Response status:', err.response.status);
+      console.error('[Auth] Response body:', JSON.stringify(body, null, 2));
+      detail = `HTTP ${err.response.status}: ${JSON.stringify(body)}`;
     }
-    res.redirect(`/?error=${encodeURIComponent(err.message)}`);
+    res.redirect(`/?error=${encodeURIComponent(detail)}`);
   }
 });
 
