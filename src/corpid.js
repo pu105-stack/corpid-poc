@@ -41,26 +41,12 @@ class CorpIDClient {
 
   async _requestCEK() {
     const body = buildGetKeyBody(this.clientID, this.clientSecret);
-    console.log('[CorpID] getKey body:', JSON.stringify(body));
-
-    // Try 1: body-based auth (per spec 2.3.6.1.2)
     let res;
     try {
       res = await axios.post(`${CORPID_BASE}/api/v1/security/getKey`, body);
-      console.log('[CorpID] getKey (body) response code:', res.data.code);
-    } catch (bodyErr) {
-      console.warn('[CorpID] getKey (body) failed:', bodyErr.response?.status, JSON.stringify(bodyErr.response?.data));
-      // Try 2: header-based auth (like iAM Smart)
-      const { clientID, signatureMethod, signature, timestamp, nonce } = body;
-      const headers = { clientID, signatureMethod, signature, timestamp: String(timestamp), nonce };
-      console.log('[CorpID] getKey retry with headers:', JSON.stringify(headers));
-      try {
-        res = await axios.post(`${CORPID_BASE}/api/v1/security/getKey`, null, { headers });
-        console.log('[CorpID] getKey (headers) response code:', res.data.code);
-      } catch (hdrErr) {
-        console.error('[CorpID] getKey (headers) also failed:', hdrErr.response?.status, JSON.stringify(hdrErr.response?.data));
-        throw hdrErr;
-      }
+    } catch (err) {
+      console.error('[CorpID] getKey failed:', err.response?.status, JSON.stringify(err.response?.data));
+      throw err;
     }
     console.log('[CorpID] getKey response code:', res.data.code);
 
@@ -79,9 +65,7 @@ class CorpIDClient {
   // -------------------------------------------------------------------------
 
   async _post(path, bodyObj) {
-    console.log('[CorpID] _post start:', path);
     await this._ensureCEK();
-    console.log('[CorpID] _post CEK ready, building request');
 
     const timestamp        = Date.now();
     const nonce            = require('crypto').randomUUID();
@@ -91,22 +75,12 @@ class CorpIDClient {
     const bodyStr          = JSON.stringify(requestBody);
     const headers          = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, bodyStr);
 
-    console.log('[CorpID] POST', path);
-    console.log('[CorpID]   headers:', JSON.stringify(headers));
-    console.log('[CorpID]   body keys:', Object.keys(requestBody).join(', '));
-    console.log('[CorpID]   content length:', encryptedContent.length);
+    console.log('[CorpID] POST', path, 'clientID:', this.clientID?.slice(0, 8));
 
-    let res;
-    try {
-      res = await axios.post(`${CORPID_BASE}${path}`, requestBody, { headers });
-    } catch (err) {
-      console.error('[CorpID] HTTP error:', err.response?.status, JSON.stringify(err.response?.data));
-      throw err;
-    }
+    const res = await axios.post(`${CORPID_BASE}${path}`, requestBody, { headers });
 
     const data = res.data;
-    console.log('[CorpID] POST', path, '→ HTTP', res.status, 'code:', data.code, 'msg:', data.msg || '');
-    console.log('[CorpID]   raw response:', JSON.stringify(data).slice(0, 300));
+    console.log('[CorpID] POST', path, 'HTTP', res.status, 'code:', data.code);
     if (data.content && typeof data.content === 'string') {
       data.content = decryptBody(data.content, this._cek);
     }
