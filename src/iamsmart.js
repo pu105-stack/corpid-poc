@@ -5,11 +5,9 @@
  * The same p12 KEK certificate is used for both systems.
  */
 
-const axios  = require('axios');
-const crypto = require('crypto');
+const axios = require('axios');
 const {
   generateNonce,
-  buildGetKeyBody,
   buildAuthHeaders,
   encryptBody,
   decryptBody,
@@ -60,7 +58,8 @@ class IamSmartClient {
     const timestamp        = Date.now();
     const nonce            = generateNonce();
     const encryptedContent = encryptBody(bodyObj, this._cek);
-    const headers          = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, encryptedContent, false);
+    // iAM Smart does not include the encrypted body in the HMAC message (unlike CorpID)
+    const headers          = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, '', false);
 
     const res  = await axios.post(`${IAM_BASE}${path}`, { content: encryptedContent }, { headers });
     const data = res.data;
@@ -73,19 +72,35 @@ class IamSmartClient {
 
   // -------------------------------------------------------------------------
   // Token exchange
+  // Doc example shows: unencrypted body + URL-encoded signature (unlike _post)
   // -------------------------------------------------------------------------
 
   async getToken(authCode) {
-    const res = await this._post('/api/v1/auth/getToken', {
+    const timestamp = Date.now();
+    const nonce     = generateNonce();
+    // No encrypted body in the signature message for getToken
+    const headers   = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, '', true);
+
+    const res = await axios.post(`${IAM_BASE}/api/v1/auth/getToken`, {
       code:      authCode,
       grantType: 'authorization_code',
-    });
+    }, { headers });
 
-    if (res.code !== 'D00000') {
-      throw new Error(`iAM Smart getToken failed [${res.code}]: ${res.message || res.msg}`);
+    const data = res.data;
+    if (data.content && typeof data.content === 'string') {
+      data.content = decryptBody(data.content, await this._getOrFetchCEK());
     }
 
-    return res.content; // { accessToken, openID, userType, scope, ... }
+    if (data.code !== 'D00000') {
+      throw new Error(`iAM Smart getToken failed [${data.code}]: ${data.message || data.msg}`);
+    }
+
+    return data.content; // { accessToken, openID, userType, scope, ... }
+  }
+
+  async _getOrFetchCEK() {
+    await this._ensureCEK();
+    return this._cek;
   }
 }
 
