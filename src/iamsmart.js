@@ -85,8 +85,9 @@ class IamSmartClient {
     const timestamp   = Date.now();
     const nonce       = generateNonce();
     const requestBody = { code: authCode, grantType: 'authorization_code' };
-    // Signature uses empty string for encrypted_request_body (body is plain JSON)
-    const headers     = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, '', true);
+    // Body is plain JSON (unencrypted); signature uses the full body JSON string
+    const bodyStr     = JSON.stringify(requestBody);
+    const headers     = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, bodyStr, true);
 
     console.log('[iAM Smart] getToken (unencrypted) code:', authCode?.slice(0, 8));
     const res = await axios.post(`${IAM_BASE}/api/v1/auth/getToken`, requestBody, { headers });

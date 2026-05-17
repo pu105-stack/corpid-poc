@@ -137,6 +137,26 @@ function buildGetKeyBody(clientID, clientSecret) {
   };
 }
 
+/**
+ * Builds the full POST body for encrypted CorpID endpoints (per spec section 3.1.2).
+ * Auth params go in the body alongside `content`, not in HTTP headers.
+ * Signature message: clientID + "HmacSHA256" + timestamp + nonce + encryptedContent
+ */
+function buildPostBody(clientID, clientSecret, encryptedContent) {
+  const timestamp = Date.now();
+  const nonce     = generateNonce();
+  const message   = clientID + 'HmacSHA256' + timestamp + nonce + encryptedContent;
+  const sig       = crypto.createHmac('sha256', clientSecret).update(message).digest('base64');
+  return {
+    clientID,
+    signatureMethod: 'HmacSHA256',
+    signature:       encodeURIComponent(sig),
+    timestamp,
+    nonce,
+    content:         encryptedContent,
+  };
+}
+
 function generateNonce() {
   return crypto.randomUUID();
 }
@@ -149,5 +169,6 @@ module.exports = {
   decryptBody,
   buildAuthHeaders,
   buildGetKeyBody,
+  buildPostBody,
   generateNonce,
 };
