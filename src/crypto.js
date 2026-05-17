@@ -18,18 +18,25 @@ const fs     = require('fs');
 // PKCS#12 / KEK
 // ---------------------------------------------------------------------------
 
-function loadPrivateKeyFromP12(p12Path, pin) {
-  const raw   = fs.readFileSync(p12Path).toString('binary');
-  const asn1  = forge.asn1.fromDer(raw);
-  const p12   = forge.pkcs12.pkcs12FromAsn1(asn1, false, pin);
-
-  // Try shrouded key bags first, then key bags
+function _extractKeyFromP12(raw, pin) {
+  const asn1 = forge.asn1.fromDer(raw);
+  const p12  = forge.pkcs12.pkcs12FromAsn1(asn1, false, pin);
   for (const bagType of [forge.pki.oids.pkcs8ShroudedKeyBag, forge.pki.oids.keyBag]) {
     const bags = p12.getBags({ bagType });
     const list  = bags[bagType];
     if (list && list.length > 0) return list[0].key;
   }
   throw new Error('No private key found in P12 file');
+}
+
+function loadPrivateKeyFromP12(p12Path, pin) {
+  const raw = fs.readFileSync(p12Path).toString('binary');
+  return _extractKeyFromP12(raw, pin);
+}
+
+function loadPrivateKeyFromBase64(base64, pin) {
+  const raw = Buffer.from(base64, 'base64').toString('binary');
+  return _extractKeyFromP12(raw, pin);
 }
 
 /**
@@ -138,6 +145,7 @@ function generateNonce() {
 
 module.exports = {
   loadPrivateKeyFromP12,
+  loadPrivateKeyFromBase64,
   decryptCEK,
   encryptBody,
   decryptBody,

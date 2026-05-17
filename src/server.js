@@ -4,7 +4,7 @@ const express = require('express');
 const crypto  = require('crypto');
 const path    = require('path');
 
-const { loadPrivateKeyFromP12 } = require('./crypto');
+const { loadPrivateKeyFromP12, loadPrivateKeyFromBase64 } = require('./crypto');
 const CorpIDClient              = require('./corpid');
 const IamSmartClient            = require('./iamsmart');
 const sessions                  = require('./session-store');
@@ -18,9 +18,10 @@ const {
   CORPID_CLIENT_SECRET,
   IAMSMART_CLIENT_ID,
   IAMSMART_CLIENT_SECRET,
-  KEK_P12_PATH = path.join(__dirname, '../../account-centre-kek.p12'),
-  KEK_P12_PIN  = '8568185550716550',
-  PORT         = 3000,
+  KEK_P12_PATH   = path.join(__dirname, '../../account-centre-kek.p12'),
+  KEK_P12_PIN    = '8568185550716550',
+  KEK_P12_BASE64,
+  PORT           = 3000,
 } = process.env;
 
 if (!CORPID_CLIENT_ID || !CORPID_CLIENT_SECRET) {
@@ -36,7 +37,9 @@ if (!IAMSMART_CLIENT_ID || !IAMSMART_CLIENT_SECRET) {
 // Clients
 // ---------------------------------------------------------------------------
 
-const privateKey = loadPrivateKeyFromP12(KEK_P12_PATH, KEK_P12_PIN);
+const privateKey = KEK_P12_BASE64
+  ? loadPrivateKeyFromBase64(KEK_P12_BASE64, KEK_P12_PIN)
+  : loadPrivateKeyFromP12(KEK_P12_PATH, KEK_P12_PIN);
 const corpid     = new CorpIDClient(CORPID_CLIENT_ID, CORPID_CLIENT_SECRET, privateKey);
 const iamsmart   = new IamSmartClient(IAMSMART_CLIENT_ID, IAMSMART_CLIENT_SECRET, privateKey);
 
