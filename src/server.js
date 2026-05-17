@@ -107,17 +107,20 @@ app.use(express.static(path.join(__dirname, '../public')));
 // ---------------------------------------------------------------------------
 
 function buildCorpIDQRUrl({ redirectURI, state }) {
+  // Per CorpID Sandbox Developer Guide section 1.1.2:
+  // Use iAM Smart's mockCorpId/getQR with corpMock=true so the iAM Smart auth
+  // code is issued under OUR iAM Smart clientID (allowing us to exchange it).
   const params = new URLSearchParams({
-    clientID:     CORPID_CLIENT_ID,
-    clientID_iAM: IAMSMART_CLIENT_ID,
+    clientID:     IAMSMART_CLIENT_ID,
     responseType: 'code',
     source:       'PC_Browser',
     redirectURI,
     scope:        'eidapi_auth',
     state,
     lang:         'en-US',
+    corpMock:     'true',
   });
-  return `https://corpid.cyberport.hk/api/v1/auth/getQR?${params}`;
+  return `https://apigw-isit.staging-eid.gov.hk/api/v1/auth/mockCorpId/getQR?${params}`;
 }
 
 // ---------------------------------------------------------------------------
