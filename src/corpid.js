@@ -44,9 +44,19 @@ class CorpIDClient {
     let res;
     try {
       res = await axios.post(`${CORPID_BASE}/api/v1/security/getKey`, body);
-    } catch (err) {
-      console.error('[CorpID] getKey failed:', err.response?.status, JSON.stringify(err.response?.data));
-      throw err;
+      console.log('[CorpID] getKey (body) response code:', res.data.code);
+    } catch (bodyErr) {
+      console.warn('[CorpID] getKey (body) failed:', bodyErr.response?.status, JSON.stringify(bodyErr.response?.data));
+      // Fallback: header-based auth
+      const { clientID, signatureMethod, signature, timestamp, nonce } = body;
+      const headers = { clientID, signatureMethod, signature, timestamp: String(timestamp), nonce };
+      try {
+        res = await axios.post(`${CORPID_BASE}/api/v1/security/getKey`, null, { headers });
+        console.log('[CorpID] getKey (headers) response code:', res.data.code);
+      } catch (hdrErr) {
+        console.error('[CorpID] getKey (headers) failed:', hdrErr.response?.status, JSON.stringify(hdrErr.response?.data));
+        throw hdrErr;
+      }
     }
     console.log('[CorpID] getKey response code:', res.data.code);
 
