@@ -115,7 +115,7 @@ function buildCorpIDQRUrl({ redirectURI, state }) {
     responseType: 'code',
     source:       'PC_Browser',
     redirectURI,
-    scope:        'eidapi_auth',
+    scope:        'eidapi_auth eidapi_profiles',
     state,
     lang:         'en-US',
     corpMock:     'true',
@@ -191,10 +191,11 @@ app.get('/auth/callback', async (req, res) => {
     console.log('[Auth] CorpID OK. openID:', corpTokens.openID);
 
     const sessionToken = signPayload({
-      openID:    corpTokens.openID,
-      userType:  corpTokens.userType,
-      scope:     corpTokens.scope,
-      ts:        Date.now(),
+      openID:       corpTokens.openID,
+      accessToken:  corpTokens.accessToken,
+      userType:     corpTokens.userType,
+      scope:        corpTokens.scope,
+      ts:           Date.now(),
     });
 
     clearCookie(res, 'corpid_state');
@@ -232,6 +233,92 @@ app.get('/api/me', (req, res) => {
 app.get('/api/logout', (_req, res) => {
   clearCookie(res, 'corpid_session');
   res.redirect('/');
+});
+
+// ---------------------------------------------------------------------------
+// Form pre-fill — in-memory result store (keyed by ticketID, 5-min TTL)
+// ---------------------------------------------------------------------------
+
+const formFillResults = new Map(); // ticketID → { data, expiresAt }
+
+function storeFormFillResult(ticketID, data) {
+  formFillResults.set(ticketID, { data, expiresAt: Date.now() + 5 * 60_000 });
+}
+
+function getFormFillResult(ticketID) {
+  const entry = formFillResults.get(ticketID);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { formFillResults.delete(ticketID); return null; }
+  formFillResults.delete(ticketID); // one-time read
+  return entry.data;
+}
+
+// ---------------------------------------------------------------------------
+// FORM PRE-FILL — Step 1: initiate request
+// ---------------------------------------------------------------------------
+
+app.post('/api/formfill', async (req, res) => {
+  const cookies = parseCookies(req);
+  const session = verifyPayload(cookies.corpid_session);
+  if (!session) return res.status(401).json({ error: 'not_authenticated' });
+
+  const { accessToken, openID } = session;
+  if (!accessToken) return res.status(400).json({ error: 'no_access_token_in_session' });
+
+  const state       = crypto.randomUUID();
+  const redirectURI = `${BASE_URL}/api/callback/formfill`;
+
+  try {
+    const result = await corpid.initiateFormFilling({
+      accessToken,
+      openID,
+      clientID_iAM: IAMSMART_CLIENT_ID,
+      businessID:   CORPID_CLIENT_ID,
+      redirectURI,
+      state,
+    });
+    console.log('[FormFill] initiated ticketID:', result.ticketID);
+    res.json({ ticketID: result.ticketID });
+  } catch (err) {
+    console.error('[FormFill] initiateFormFilling error:', err.message);
+    if (err.response) console.error('[FormFill] response:', JSON.stringify(err.response.data));
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// FORM PRE-FILL — Step 2: callback from CorpID (server-to-server push)
+// ---------------------------------------------------------------------------
+
+app.post('/api/callback/formfill', (req, res) => {
+  console.log('[FormFill Callback] received body keys:', Object.keys(req.body));
+  const { txID, code, msg, secretKey, content } = req.body;
+
+  if (code !== 'M00000') {
+    console.error('[FormFill Callback] non-success code:', code, msg);
+    return res.status(200).json({ code: 'M00000' }); // always ACK
+  }
+
+  try {
+    const data = corpid.decryptCallback(content, secretKey || null);
+    console.log('[FormFill Callback] decrypted OK, txID:', txID);
+    storeFormFillResult(txID, data);
+  } catch (err) {
+    console.error('[FormFill Callback] decrypt error:', err.message);
+  }
+
+  res.status(200).json({ code: 'M00000' });
+});
+
+// ---------------------------------------------------------------------------
+// FORM PRE-FILL — Step 3: browser polls for result
+// ---------------------------------------------------------------------------
+
+app.get('/api/formfill/:ticketID', (req, res) => {
+  const { ticketID } = req.params;
+  const data = getFormFillResult(ticketID);
+  if (!data) return res.json({ status: 'pending' });
+  res.json({ status: 'done', data });
 });
 
 // ---------------------------------------------------------------------------
