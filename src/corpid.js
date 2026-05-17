@@ -41,8 +41,14 @@ class CorpIDClient {
 
   async _requestCEK() {
     const body = buildGetKeyBody(this.clientID, this.clientSecret);
-    const res  = await axios.post(`${CORPID_BASE}/api/v1/security/getKey`, body);
-
+    console.log('[CorpID] getKey request clientID:', body.clientID?.slice(0, 8), 'ts:', body.timestamp);
+    let res;
+    try {
+      res = await axios.post(`${CORPID_BASE}/api/v1/security/getKey`, body);
+    } catch (err) {
+      console.error('[CorpID] getKey HTTP error:', err.response?.status, JSON.stringify(err.response?.data));
+      throw err;
+    }
     console.log('[CorpID] getKey response code:', res.data.code);
 
     if (res.data.code !== 'M00000') {
@@ -60,7 +66,9 @@ class CorpIDClient {
   // -------------------------------------------------------------------------
 
   async _post(path, bodyObj) {
+    console.log('[CorpID] _post start:', path);
     await this._ensureCEK();
+    console.log('[CorpID] _post CEK ready, building request');
 
     const timestamp        = Date.now();
     const nonce            = require('crypto').randomUUID();
