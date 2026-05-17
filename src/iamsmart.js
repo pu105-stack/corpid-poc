@@ -39,16 +39,8 @@ class IamSmartClient {
     const nonce     = generateNonce();
     const headers   = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, '', true);
 
-    const signMsg = this.clientID + 'HmacSHA256' + timestamp + nonce + '';
-    console.log('[iAM CEK] clientID       :', this.clientID);
-    console.log('[iAM CEK] clientSecret   :', this.clientSecret.slice(0,4) + '...' + this.clientSecret.slice(-4), 'len=' + this.clientSecret.length);
-    console.log('[iAM CEK] timestamp      :', timestamp);
-    console.log('[iAM CEK] nonce          :', nonce);
-    console.log('[iAM CEK] sign message   :', signMsg);
-    console.log('[iAM CEK] headers sent   :', JSON.stringify(headers));
-
     const res = await axios.post(`${IAM_BASE}/api/v1/security/getKey`, null, { headers });
-    console.log('[iAM CEK] response       :', JSON.stringify(res.data));
+    console.log('[iAM Smart] getKey response code:', res.data.code);
 
     if (res.data.code !== 'D00000') {
       throw new Error(`iAM Smart CEK request failed [${res.data.code}]: ${res.data.msg || res.data.message}`);
@@ -69,16 +61,10 @@ class IamSmartClient {
     const requestBody      = { content: encryptedContent };
     const bodyStr          = JSON.stringify(requestBody);
 
-    // Try full JSON body string as the "encrypted_request_body" in the signature message
     const headers = buildAuthHeaders(this.clientID, this.clientSecret, timestamp, nonce, bodyStr, true);
 
-    console.log('[iAM POST] path          :', path);
-    console.log('[iAM POST] encContent len:', encryptedContent.length);
-    console.log('[iAM POST] bodyStr len   :', bodyStr.length);
-    console.log('[iAM POST] headers sent  :', JSON.stringify(headers));
-
-    const res  = await axios.post(`${IAM_BASE}${path}`, requestBody, { headers });
-    console.log('[iAM POST] response      :', JSON.stringify(res.data).slice(0, 300));
+    const res = await axios.post(`${IAM_BASE}${path}`, requestBody, { headers });
+    console.log('[iAM Smart] POST', path, 'response code:', res.data.code);
     const data = res.data;
 
     if (data.content && typeof data.content === 'string') {

@@ -103,10 +103,8 @@ function decryptBody(base64Content, cekBuffer) {
 
 /**
  * Builds the five common headers required on every CorpID / iAM Smart POST.
- * signature = Base64(HMAC-SHA256(clientID + "HmacSHA256" + timestamp + nonce + encryptedBody, clientSecret))
- *
- * urlEncode: CorpID spec examples show URL-encoded signature; iAM Smart verifies
- * raw base64 in headers. Pass false for iAM Smart calls.
+ * signature = URLEncode(Base64(HMAC-SHA256(clientID + "HmacSHA256" + timestamp + nonce + encryptedBody, clientSecret)))
+ * Both CorpID and iAM Smart require urlEncode=true (URL-encoded signature in headers).
  */
 function buildAuthHeaders(clientID, clientSecret, timestamp, nonce, encryptedBody = '', urlEncode = true) {
   const message = clientID + 'HmacSHA256' + timestamp + nonce + encryptedBody;

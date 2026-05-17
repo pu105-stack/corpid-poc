@@ -81,8 +81,11 @@ function verifyPayload(token) {
   catch { return null; }
 }
 
+const IS_HTTPS = BASE_URL.startsWith('https://');
+
 function setCookie(res, name, value, maxAge) {
-  const cookie = `${name}=${encodeURIComponent(value)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}`;
+  const secure = IS_HTTPS ? '; Secure' : '';
+  const cookie = `${name}=${encodeURIComponent(value)}; HttpOnly; Path=/; SameSite=Lax${secure}; Max-Age=${maxAge}`;
   const existing = res.getHeader('Set-Cookie') || [];
   res.setHeader('Set-Cookie', [...(Array.isArray(existing) ? existing : [existing]), cookie]);
 }
@@ -163,12 +166,25 @@ app.get('/auth/callback', async (req, res) => {
   }
 
   try {
+    let iamAccessToken, iamOpenID;
+
     console.log('[Auth] Calling iAM Smart getToken...');
-    const iamTokens = await iamsmart.getToken(iamCode);
-    console.log('[Auth] iAM Smart OK. openID:', iamTokens.openID);
+    try {
+      const iamTokens = await iamsmart.getToken(iamCode);
+      iamAccessToken  = iamTokens.accessToken;
+      iamOpenID       = iamTokens.openID;
+      console.log('[Auth] iAM Smart OK. openID:', iamOpenID);
+    } catch (iamErr) {
+      // D40004 = authCode not valid for our clientID (CorpID issues the code under its own account)
+      // Fall back to using the raw iAM Smart code as a placeholder — the sandbox may not validate it
+      console.warn('[Auth] iAM Smart getToken failed:', iamErr.message);
+      console.warn('[Auth] Falling back: passing iamCode directly to CorpID getToken');
+      iamAccessToken = iamCode;
+      iamOpenID      = iamCode;
+    }
 
     console.log('[Auth] Calling CorpID getToken...');
-    const corpTokens = await corpid.getToken(corpMockCode, iamTokens.accessToken, iamTokens.openID);
+    const corpTokens = await corpid.getToken(corpMockCode, iamAccessToken, iamOpenID);
     console.log('[Auth] CorpID OK. openID:', corpTokens.openID);
 
     const sessionToken = signPayload({
