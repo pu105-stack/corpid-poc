@@ -125,7 +125,7 @@ class CorpIDClient {
       openID,
       clientID_iAM,
       source:              'PC_Browser',
-      iamFormfill:         false,
+      iamFormfill:         true,
       redirectURI,
       state,
       formName:            'CorpID PoC – Account Registration',
@@ -133,8 +133,10 @@ class CorpIDClient {
       formDesc:            'Demo form pre-filling via CorpID Sandbox',
       callbackContentType: 'application/json',
 
-      corpProfileFields:     ['corpID', 'brn', 'corpNameEN', 'corpNameTC', 'corpAddr'],
-      corpUserProfileFields: ['id_cty_issue', 'id_type'],
+      corpProfileFields:     ["corpID","brn","corpNameEN","corpNameTC","corpNameSC","corpAddr","corpTel"],
+      corpUserProfileFields: ["corpID","brn","corpNameEN","corpNameTC","corpNameSC","corpAddr","corpTel"],
+      profileFields:         ["idNo","enName","chName","birthDate","gender"],
+      eMEFields:             ["idNo","enName","chName","birthDate","gender"],
       eCorpFields: [
         'corpID', 'brn', 'corpNameEN', 'corpNameTC', 'corpAddr',
         'corpTypeEN', 'corpTel', 'corpStatusEN', 'placeOfIncorp', 'dateOfReg',
