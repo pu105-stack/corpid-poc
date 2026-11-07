@@ -107,19 +107,22 @@ app.use(express.static(path.join(__dirname, '../public')));
 // ---------------------------------------------------------------------------
 
 const IAM_SMART_BASE_URL = process.env.IAM_SMART_BASE_URL || 'https://apigw-isit.staging-eid.gov.hk';
+const IAM_SCOPES    = 'eidapi_auth eidapi_formFilling';
+const CORPID_SCOPES = 'corpidapi_auth corpidapi_formFilling';
 
+// iAM Smart API Spec for CorpID v0.1.2 §1.4.1 (the "corpId/getQR" in its example block is stale)
 function buildCorpIDQRUrl({ redirectURI, state }) {
   const params = new URLSearchParams({
     clientID:     IAMSMART_CLIENT_ID,
     responseType: 'code',
     source:       'PC_Browser',
     redirectURI,
-    scope:        'eidapi_auth',
-    cScope:       'corpidapi_auth',
+    scope:        IAM_SCOPES,
+    cScope:       CORPID_SCOPES,
     state,
     lang:         'en-US',
   });
-  return `${IAM_SMART_BASE_URL}/api/v1/auth/corpId/getQR?${params}`;
+  return `${IAM_SMART_BASE_URL}/api/v1/auth/getCQR?${params}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,13 +148,14 @@ app.get('/api/login', (_req, res) => {
 // ---------------------------------------------------------------------------
 
 app.get('/auth/callback', async (req, res) => {
-  const { code: iamCode, cCode, state, error_code } = req.query;
+  const { code: iamCode, cCode, state, error_code, cError_code } = req.query;
 
   console.log('[Callback] query:', JSON.stringify(req.query, null, 2));
 
-  if (error_code) {
-    console.error('[Callback] Error from iAM Smart:', error_code);
-    return res.redirect(`/?error=${encodeURIComponent(error_code)}`);
+  if (error_code || cError_code) {
+    const detail = [cError_code && `CorpID ${cError_code}`, error_code && `iAM Smart ${error_code}`].filter(Boolean).join(', ');
+    console.error('[Callback] Error from callback:', detail);
+    return res.redirect(`/?error=${encodeURIComponent(detail)}`);
   }
 
   // Verify state via signed cookie
@@ -162,34 +166,37 @@ app.get('/auth/callback', async (req, res) => {
     return res.redirect('/?error=invalid_state');
   }
 
-  if (!iamCode || !cCode) {
-    console.error('[Callback] Missing auth codes:', { iamCode, cCode });
+  // `code` (iAM Smart) is conditional — absent for non-HK-resident CorpID users
+  if (!cCode) {
+    console.error('[Callback] Missing cCode:', { iamCode, cCode });
     return res.redirect('/?error=missing_auth_codes');
   }
 
   try {
-    // Fetch iAM Smart tokens (needed for profile/form-filling flows)
-    console.log('[Auth] Calling iAM Smart getToken...');
-    let iamAccessToken, iamOpenID;
-    try {
-      const iamTokens = await iamsmart.getToken(iamCode);
-      iamAccessToken  = iamTokens.accessToken;
-      iamOpenID       = iamTokens.openID;
-      console.log('[Auth] iAM Smart OK. openID:', iamOpenID);
-    } catch (iamErr) {
-      console.warn('[Auth] iAM Smart getToken failed (non-fatal):', iamErr.message);
-    }
-
+    // CorpID first: cCode expires 30 s after issuance
     console.log('[Auth] Calling CorpID getToken...');
     const corpTokens = await corpid.getToken(cCode);
-    console.log('[Auth] CorpID OK. cOpenID:', corpTokens.cOpenID);
+    console.log('[Auth] CorpID OK. cOpenID:', corpTokens.cOpenID, 'corpCount:', corpTokens.corpCount);
+
+    // iAM Smart tokens are needed later to build iAMToken for form filling
+    let iamTokens = null;
+    if (iamCode) {
+      try {
+        iamTokens = await iamsmart.getToken(iamCode);
+        console.log('[Auth] iAM Smart OK. openID:', iamTokens.openID);
+      } catch (iamErr) {
+        console.warn('[Auth] iAM Smart getToken failed (form filling will be unavailable):', iamErr.message);
+      }
+    }
 
     const sessionToken = signPayload({
-      cOpenID:      corpTokens.cOpenID,
-      cAccessToken: corpTokens.cAccessToken,
-      corpCount:    corpTokens.corpCount,
-      corpInfo:     corpTokens.corpInfo,
-      ts:           Date.now(),
+      cOpenID:        corpTokens.cOpenID,
+      cAccessToken:   corpTokens.cAccessToken,
+      corpCount:      corpTokens.corpCount,
+      corpInfo:       corpTokens.corpInfo,
+      iamAccessToken: iamTokens?.accessToken,
+      iamOpenID:      iamTokens?.openID,
+      ts:             Date.now(),
     });
 
     clearCookie(res, 'corpid_state');
@@ -230,29 +237,31 @@ app.get('/api/logout', (_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Form pre-fill — in-memory result store (keyed by ticketID, 5-min TTL)
+// Form pre-fill — in-memory result store (keyed by businessID, 5-min TTL)
 // ---------------------------------------------------------------------------
 
 const formFillResults = new Map(); // in-memory (same instance)
 const fs = require('fs');
+const FORMFILL_TTL_MS = 5 * 60_000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function storeFormFillResult(ticketID, data) {
-  const payload = JSON.stringify({ data, expiresAt: Date.now() + 5 * 60_000 });
-  formFillResults.set(ticketID, { data, expiresAt: Date.now() + 5 * 60_000 });
-  try { fs.writeFileSync(`/tmp/ff_${ticketID}.json`, payload); } catch (_) {}
+function storeFormFillResult(businessID, data) {
+  const entry = { data, expiresAt: Date.now() + FORMFILL_TTL_MS };
+  formFillResults.set(businessID, entry);
+  try { fs.writeFileSync(`/tmp/ff_${businessID}.json`, JSON.stringify(entry)); } catch (_) {}
 }
 
-function getFormFillResult(ticketID) {
+function getFormFillResult(businessID) {
   // Try in-memory first, then /tmp (survives across warm Vercel instances)
-  let entry = formFillResults.get(ticketID);
+  let entry = formFillResults.get(businessID);
   if (!entry) {
     try {
-      entry = JSON.parse(fs.readFileSync(`/tmp/ff_${ticketID}.json`, 'utf8'));
+      entry = JSON.parse(fs.readFileSync(`/tmp/ff_${businessID}.json`, 'utf8'));
     } catch (_) {}
   }
   if (!entry) return null;
-  formFillResults.delete(ticketID);
-  try { fs.unlinkSync(`/tmp/ff_${ticketID}.json`); } catch (_) {}
+  formFillResults.delete(businessID);
+  try { fs.unlinkSync(`/tmp/ff_${businessID}.json`); } catch (_) {}
   if (Date.now() > entry.expiresAt) return null;
   return entry.data;
 }
@@ -266,7 +275,7 @@ app.post('/api/formfill', async (req, res) => {
   const session = verifyPayload(cookies.corpid_session);
   if (!session) return res.status(401).json({ error: 'not_authenticated' });
 
-  const { cAccessToken, cOpenID } = session;
+  const { cAccessToken, cOpenID, iamAccessToken, iamOpenID } = session;
   if (!cAccessToken) return res.status(400).json({ error: 'no_access_token_in_session' });
 
   const state       = crypto.randomUUID();
@@ -274,15 +283,21 @@ app.post('/api/formfill', async (req, res) => {
   const redirectURI = `${BASE_URL}/api/callback/formfill`;
 
   try {
+    // API Spec §2.3.2.1: iAM Smart accessToken + openID, encrypted with the iAM Smart CEK
+    const iAMToken = iamAccessToken
+      ? await iamsmart.encryptWithCEK({ accessToken: iamAccessToken, openID: iamOpenID })
+      : undefined;
+
     const result = await corpid.initiateFormFilling({
       cAccessToken,
       cOpenID,
+      iAMToken,
       businessID,
       redirectURI,
       state,
     });
-    console.log('[FormFill] initiated ticketID:', result.ticketID);
-    res.json({ ticketID: result.ticketID });
+    console.log('[FormFill] initiated businessID:', businessID, 'ticketID:', result.ticketID, 'authByQR:', result.authByQR);
+    res.json({ businessID });
   } catch (err) {
     console.error('[FormFill] initiateFormFilling error:', err.message);
     if (err.response) console.error('[FormFill] response:', JSON.stringify(err.response.data));
@@ -317,11 +332,18 @@ app.post('/api/callback/formfill', async (req, res) => {
     }
     const data = corpid.decryptCallback(content, secretKey || null);
     console.log('[FormFill Callback] decrypted OK. Keys:', Object.keys(data));
-    // txID comes back as "<T=uuid>" — normalise to just the uuid to match ticketID
-    const normalizedID = txID.replace(/^<T=(.+)>$/, '$1');
-    console.log('[FormFill Callback] storing result for normalizedID:', normalizedID);
-    storeFormFillResult(normalizedID, data);
-    console.log('[FormFill Callback] Map size now:', formFillResults.size);
+
+    // API Spec §2.3.5 / §4.7: iAM Smart part may sit at top level or inside content
+    const iamContent   = req.body.iAMContent   ?? data.iAMContent;
+    const iamSecretKey = req.body.iAMSecretKey ?? data.iAMSecretKey;
+    const iam = iamContent ? await iamsmart.decryptContent(iamContent, iamSecretKey) : null;
+
+    if (!data.businessID) {
+      console.error('[FormFill Callback] no businessID in decrypted content');
+      return;
+    }
+    storeFormFillResult(data.businessID, { corp: data.corp, iam });
+    console.log('[FormFill Callback] stored result for businessID:', data.businessID);
   } catch (err) {
     console.error('[FormFill Callback] decrypt error:', err.message);
   }
@@ -331,10 +353,10 @@ app.post('/api/callback/formfill', async (req, res) => {
 // FORM PRE-FILL — Step 3: browser polls for result
 // ---------------------------------------------------------------------------
 
-app.get('/api/formfill/:ticketID', (req, res) => {
-  const { ticketID } = req.params;
-  console.log('[FormFill Poll] ticketID:', ticketID, '| Map keys:', [...formFillResults.keys()]);
-  const data = getFormFillResult(ticketID);
+app.get('/api/formfill/:businessID', (req, res) => {
+  const { businessID } = req.params;
+  if (!UUID_RE.test(businessID)) return res.status(400).json({ error: 'invalid_business_id' });
+  const data = getFormFillResult(businessID);
   if (!data) return res.json({ status: 'pending' });
   console.log('[FormFill Poll] found result, returning done');
   res.json({ status: 'done', data });

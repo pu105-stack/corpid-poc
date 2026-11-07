@@ -20,6 +20,9 @@ const {
 
 const CORPID_BASE = process.env.CORPID_BASE_URL || 'https://isit-apigw.corpid-np.gov.hk';
 
+// Spec §2.4.2 names the field "message"; older examples and the sandbox used "msg"
+const errorText = (data) => data.message ?? data.msg;
+
 class CorpIDClient {
   constructor(clientID, clientSecret, privateKey) {
     this.clientID     = clientID;
@@ -48,7 +51,7 @@ class CorpIDClient {
     console.log('[CorpID] getKey response code:', res.data.code);
 
     if (res.data.code !== 'M00000') {
-      throw new Error(`CEK request failed [${res.data.code}]: ${res.data.msg}`);
+      throw new Error(`CEK request failed [${res.data.code}]: ${errorText(res.data)}`);
     }
 
     const { secretKey, issueAt, expiresIn } = res.data.content;
@@ -99,9 +102,9 @@ class CorpIDClient {
       grantType: 'authorization_code',
     });
 
-    console.log('[CorpID] getToken response code:', res.code, 'msg:', res.msg);
+    console.log('[CorpID] getToken response code:', res.code, 'message:', errorText(res));
     if (res.code !== 'M00000') {
-      throw new Error(`CorpID getToken failed [${res.code}]: ${res.msg}`);
+      throw new Error(`CorpID getToken failed [${res.code}]: ${errorText(res)}`);
     }
     return res.content; // { cAccessToken, cOpenID, tokenType, corpCount, corpInfo, ... }
   }
@@ -115,11 +118,13 @@ class CorpIDClient {
    * CorpID will push the decrypted data to redirectURI (CLB-002 callback).
    * Returns: { ticketID, authByQR }
    */
-  async initiateFormFilling({ cAccessToken, cOpenID, businessID, redirectURI, state }) {
+  async initiateFormFilling({ cAccessToken, cOpenID, iAMToken, businessID, redirectURI, state }) {
+    // Field names per CorpID API Spec §4.6 + Appendix A (5.1–5.3)
     const res = await this._post('/api/eservice/v1/formFilling/initiateRequest', {
       businessID,
       cAccessToken,
       cOpenID,
+      ...(iAMToken && { iAMToken }),
       source:              'PC_Browser',
       redirectURI,
       state,
@@ -127,25 +132,28 @@ class CorpIDClient {
       formNum:             'POC-001',
       formDesc:            'Demo form pre-filling via CorpID UAT',
       callbackContentType: 'application/json',
+      authorisationToken:  false,
 
-      corpProfileFields:     ["corpID","brn","corpNameEN","corpNameTC","corpNameSC","corpAddr","corpTel"],
-      corpUserProfileFields: ["corpID","brn","corpNameEN","corpNameTC","corpNameSC","corpAddr","corpTel"],
-      profileFields:         ["idNo","enName","chName","birthDate","gender"],
-      eMEFields:             ["idNo","enName","chName","birthDate","gender"],
-      eCorpFields: [
-        'corpID', 'brn', 'corpNameEN', 'corpNameTC', 'corpAddr',
-        'corpTypeEN', 'corpTel', 'corpStatusEN', 'placeOfIncorp', 'dateOfReg',
+      corpProfileFields: [
+        'ubi', 'crn', 'type', 'status', 'engName', 'chiName',
+        'engAddress', 'chiAddress', 'commencementDate', 'brcExpiryDate',
       ],
+      nonHKResidentFields: ['enName', 'chName', 'email', 'countryCode', 'passport'],
+      eCorpFields:         ['eCorpAddr', 'eCorpEmailAddr', 'eCorpTelNo', 'eCorpFaxNo', 'eCorpWebsite'],
+      ...(iAMToken && {
+        profileFields: ['idNo', 'enName', 'chName', 'birthDate', 'gender'],
+        eMEFields:     ['idNo', 'enName', 'chName', 'birthDate', 'gender'],
+      }),
     });
 
     if (res.code !== 'M00000') {
-      throw new Error(`initiateFormFilling failed [${res.code}]: ${res.msg}`);
+      throw new Error(`initiateFormFilling failed [${res.code}]: ${errorText(res)}`);
     }
     return res.content; // { ticketID, authByQR }
   }
 
   // -------------------------------------------------------------------------
-  // CORPID-4: Decrypt pushed callback
+  // CBL-002: Decrypt pushed callback
   // -------------------------------------------------------------------------
 
   /**

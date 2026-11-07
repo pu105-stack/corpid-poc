@@ -88,6 +88,25 @@ class IamSmartClient {
     }
     return res.content; // { accessToken, openID, userType, scope, ... }
   }
+
+  // -------------------------------------------------------------------------
+  // CorpID pass-through fields (CorpID API Spec §2.3.2)
+  // -------------------------------------------------------------------------
+
+  /** Encrypt an object with the iAM Smart CEK, e.g. to build CorpID's "iAMToken". */
+  async encryptWithCEK(obj) {
+    await this._ensureCEK();
+    return encryptBody(obj, this._cek);
+  }
+
+  /** Decrypt "iAMContent" from a CorpID callback; iAMSecretKey (if sent) is the KEK-encrypted iAM Smart CEK. */
+  async decryptContent(encryptedContent, encryptedSecretKey) {
+    if (encryptedSecretKey) {
+      return decryptBody(encryptedContent, decryptCEK(encryptedSecretKey, this.privateKey));
+    }
+    await this._ensureCEK();
+    return decryptBody(encryptedContent, this._cek);
+  }
 }
 
 module.exports = IamSmartClient;
