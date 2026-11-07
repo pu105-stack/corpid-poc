@@ -106,21 +106,20 @@ app.use(express.static(path.join(__dirname, '../public')));
 // Build the CorpID getQR URL
 // ---------------------------------------------------------------------------
 
+const IAM_SMART_BASE_URL = process.env.IAM_SMART_BASE_URL || 'https://apigw-isit.staging-eid.gov.hk';
+
 function buildCorpIDQRUrl({ redirectURI, state }) {
-  // Per CorpID Sandbox Developer Guide section 1.1.2:
-  // Use iAM Smart's mockCorpId/getQR with corpMock=true so the iAM Smart auth
-  // code is issued under OUR iAM Smart clientID (allowing us to exchange it).
   const params = new URLSearchParams({
     clientID:     IAMSMART_CLIENT_ID,
     responseType: 'code',
     source:       'PC_Browser',
     redirectURI,
     scope:        'eidapi_auth',
+    cScope:       'corpidapi_auth',
     state,
     lang:         'en-US',
-    corpMock:     'true',
   });
-  return `https://apigw-isit.staging-eid.gov.hk/api/v1/auth/mockCorpId/getQR?${params}`;
+  return `${IAM_SMART_BASE_URL}/api/v1/auth/corpId/getQR?${params}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +145,7 @@ app.get('/api/login', (_req, res) => {
 // ---------------------------------------------------------------------------
 
 app.get('/auth/callback', async (req, res) => {
-  const { code: iamCode, corpMockCode, state, error_code } = req.query;
+  const { code: iamCode, cCode, state, error_code } = req.query;
 
   console.log('[Callback] query:', JSON.stringify(req.query, null, 2));
 
@@ -163,38 +162,33 @@ app.get('/auth/callback', async (req, res) => {
     return res.redirect('/?error=invalid_state');
   }
 
-  if (!iamCode || !corpMockCode) {
-    console.error('[Callback] Missing auth codes:', { iamCode, corpMockCode });
+  if (!iamCode || !cCode) {
+    console.error('[Callback] Missing auth codes:', { iamCode, cCode });
     return res.redirect('/?error=missing_auth_codes');
   }
 
   try {
-    let iamAccessToken, iamOpenID;
-
+    // Fetch iAM Smart tokens (needed for profile/form-filling flows)
     console.log('[Auth] Calling iAM Smart getToken...');
+    let iamAccessToken, iamOpenID;
     try {
       const iamTokens = await iamsmart.getToken(iamCode);
       iamAccessToken  = iamTokens.accessToken;
       iamOpenID       = iamTokens.openID;
       console.log('[Auth] iAM Smart OK. openID:', iamOpenID);
     } catch (iamErr) {
-      // D40004 = authCode not valid for our clientID (CorpID issues the code under its own account)
-      // Fall back to using the raw iAM Smart code as a placeholder — the sandbox may not validate it
-      console.warn('[Auth] iAM Smart getToken failed:', iamErr.message);
-      console.warn('[Auth] Falling back: passing iamCode directly to CorpID getToken');
-      iamAccessToken = iamCode;
-      iamOpenID      = iamCode;
+      console.warn('[Auth] iAM Smart getToken failed (non-fatal):', iamErr.message);
     }
 
     console.log('[Auth] Calling CorpID getToken...');
-    const corpTokens = await corpid.getToken(corpMockCode, iamAccessToken, iamOpenID);
-    console.log('[Auth] CorpID OK. openID:', corpTokens.openID);
+    const corpTokens = await corpid.getToken(cCode);
+    console.log('[Auth] CorpID OK. cOpenID:', corpTokens.cOpenID);
 
     const sessionToken = signPayload({
-      openID:       corpTokens.openID,
-      accessToken:  corpTokens.accessToken,
-      userType:     corpTokens.userType,
-      scope:        corpTokens.scope,
+      cOpenID:      corpTokens.cOpenID,
+      cAccessToken: corpTokens.cAccessToken,
+      corpCount:    corpTokens.corpCount,
+      corpInfo:     corpTokens.corpInfo,
       ts:           Date.now(),
     });
 
@@ -224,9 +218,9 @@ app.get('/api/me', (req, res) => {
   if (!session) return res.status(401).json({ authenticated: false });
   res.json({
     authenticated: true,
-    openID:   session.openID,
-    userType: session.userType,
-    scope:    session.scope,
+    cOpenID:   session.cOpenID,
+    corpCount: session.corpCount,
+    corpInfo:  session.corpInfo,
   });
 });
 
@@ -272,8 +266,8 @@ app.post('/api/formfill', async (req, res) => {
   const session = verifyPayload(cookies.corpid_session);
   if (!session) return res.status(401).json({ error: 'not_authenticated' });
 
-  const { accessToken, openID } = session;
-  if (!accessToken) return res.status(400).json({ error: 'no_access_token_in_session' });
+  const { cAccessToken, cOpenID } = session;
+  if (!cAccessToken) return res.status(400).json({ error: 'no_access_token_in_session' });
 
   const state       = crypto.randomUUID();
   const businessID  = crypto.randomUUID();
@@ -281,9 +275,8 @@ app.post('/api/formfill', async (req, res) => {
 
   try {
     const result = await corpid.initiateFormFilling({
-      accessToken,
-      openID,
-      clientID_iAM: IAMSMART_CLIENT_ID,
+      cAccessToken,
+      cOpenID,
       businessID,
       redirectURI,
       state,

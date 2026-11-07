@@ -1,12 +1,12 @@
 /**
- * CorpID Sandbox API client
+ * CorpID UAT API client
  *
  * Handles:
  *   - CEK lifecycle: request, cache, auto-renew on expiry
  *   - Encrypting POST request bodies + decrypting responses
- *   - getToken   (CORPID-2): exchange authCode for accessToken + openID
- *   - initiateFormFilling (CORPID-3): request corporate profile data
- *   - decryptCallback: decrypt the pushed form-filling callback (CORPID-4)
+ *   - getToken   (EXT-002): exchange cAuthCode for cAccessToken + cOpenID
+ *   - initiateFormFilling (EXT-006): request corporate profile data
+ *   - decryptCallback: decrypt the pushed form-filling callback (CLB-002)
  */
 
 const axios  = require('axios');
@@ -18,7 +18,7 @@ const {
   buildGetKeyBody,
 } = require('./crypto');
 
-const CORPID_BASE = 'https://corpid.cyberport.hk';
+const CORPID_BASE = process.env.CORPID_BASE_URL || 'https://isit-apigw.corpid-np.gov.hk';
 
 class CorpIDClient {
   constructor(clientID, clientSecret, privateKey) {
@@ -43,7 +43,7 @@ class CorpIDClient {
     // CorpID getKey requires auth params in headers (body-based auth rejected by sandbox)
     const { clientID, signatureMethod, signature, timestamp, nonce } = buildGetKeyBody(this.clientID, this.clientSecret);
     const headers = { clientID, signatureMethod, signature, timestamp: String(timestamp), nonce };
-    const res = await axios.post(`${CORPID_BASE}/api/v1/security/getKey`, null, { headers });
+    const res = await axios.post(`${CORPID_BASE}/api/eservice/v1/security/getKey`, null, { headers });
 
     console.log('[CorpID] getKey response code:', res.data.code);
 
@@ -85,52 +85,47 @@ class CorpIDClient {
   }
 
   // -------------------------------------------------------------------------
-  // CORPID-2: Get Access Token
+  // EXT-002: Get Access Token
   // -------------------------------------------------------------------------
 
   /**
-   * Exchange the CorpID authCode (corpMockCode) for an accessToken + openID.
-   * Requires the iAM Smart accessToken and openID from iamsmart.getToken().
-   * Returns: { accessToken, openID, tokenType, scope, ... }
+   * Exchange the CorpID cAuthCode (from callback cCode param) for cAccessToken + cOpenID.
+   * Returns: { cAccessToken, cOpenID, tokenType, corpCount, corpInfo, ... }
    */
-  async getToken(corpidAuthCode, iamAccessToken, iamOpenID) {
-    console.log('[CorpID] getToken corpMockCode:', corpidAuthCode?.slice(0, 8), 'iamTokenLen:', iamAccessToken?.length);
-    const res = await this._post('/api/v1/auth/getToken', {
-      ticketID:              corpidAuthCode,
-      grantType:             'authorization_code',
-      iAMSmart_AccessToken:  iamAccessToken,
-      iAMSmart_TokenizedID:  iamOpenID,
+  async getToken(cAuthCode) {
+    console.log('[CorpID] getToken cAuthCode:', cAuthCode?.slice(0, 8));
+    const res = await this._post('/api/eservice/v1/auth/getToken', {
+      cAuthCode,
+      grantType: 'authorization_code',
     });
 
     console.log('[CorpID] getToken response code:', res.code, 'msg:', res.msg);
     if (res.code !== 'M00000') {
       throw new Error(`CorpID getToken failed [${res.code}]: ${res.msg}`);
     }
-    return res.content; // { accessToken, openID, tokenType, expiresIn, scope, ... }
+    return res.content; // { cAccessToken, cOpenID, tokenType, corpCount, corpInfo, ... }
   }
 
   // -------------------------------------------------------------------------
-  // CORPID-3: Initiate Form Pre-filling (web e-service)
+  // EXT-006: Initiate Form Pre-filling (web e-service)
   // -------------------------------------------------------------------------
 
   /**
    * Request corporate + personal profile data.
-   * CorpID will push the decrypted data to redirectURI (CORPID-4 callback).
+   * CorpID will push the decrypted data to redirectURI (CLB-002 callback).
    * Returns: { ticketID, authByQR }
    */
-  async initiateFormFilling({ accessToken, openID, clientID_iAM, businessID, redirectURI, state }) {
-    const res = await this._post('/api/v1/formFilling/initiateRequest', {
+  async initiateFormFilling({ cAccessToken, cOpenID, businessID, redirectURI, state }) {
+    const res = await this._post('/api/eservice/v1/formFilling/initiateRequest', {
       businessID,
-      accessToken,
-      openID,
-      clientID_iAM,
+      cAccessToken,
+      cOpenID,
       source:              'PC_Browser',
-      iamFormfill:         true,
       redirectURI,
       state,
       formName:            'CorpID PoC – Account Registration',
       formNum:             'POC-001',
-      formDesc:            'Demo form pre-filling via CorpID Sandbox',
+      formDesc:            'Demo form pre-filling via CorpID UAT',
       callbackContentType: 'application/json',
 
       corpProfileFields:     ["corpID","brn","corpNameEN","corpNameTC","corpNameSC","corpAddr","corpTel"],

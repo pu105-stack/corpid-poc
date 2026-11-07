@@ -184,19 +184,19 @@
       <div class="value" id="val-openid">—</div>
     </div>
     <div class="field">
-      <label>User Type</label>
-      <div class="value" id="val-usertype">—</div>
+      <label>Corporation Name (EN)</label>
+      <div class="value" id="val-corpname">—</div>
     </div>
     <div class="field">
-      <label>Scope</label>
-      <div class="value" id="val-scope">—</div>
+      <label>User Role</label>
+      <div class="value" id="val-userrole">—</div>
     </div>
   </div>
 
   <div style="margin-top:20px; padding-top:16px; border-top:1px solid #e2e8f0;">
     <p style="color:#555; font-size:0.88rem; line-height:1.6;">
-      ✔ Identity verified successfully.<br>
-      The <strong>openID</strong> is a stable tokenised identifier for this user on your e-service —
+      ✔ Corporate identity verified successfully.<br>
+      The <strong>cOpenID</strong> is a stable tokenised identifier for this user on your e-service —
       store it in your user database to recognise them on future logins.
     </p>
   </div>
@@ -247,9 +247,9 @@
       if (!data.authenticated) return;
       document.getElementById('login-card').style.display  = 'none';
       document.getElementById('result-card').style.display = 'block';
-      document.getElementById('val-openid').textContent    = data.openID   || '—';
-      document.getElementById('val-usertype').textContent  = data.userType || '—';
-      document.getElementById('val-scope').textContent     = data.scope    || '—';
+      document.getElementById('val-openid').textContent   = data.cOpenID || '—';
+      document.getElementById('val-corpname').textContent = data.corpInfo?.corpNameEN || '—';
+      document.getElementById('val-userrole').textContent = data.corpInfo?.userRole   || '—';
     })
     .catch(() => {});
 

@@ -1,5 +1,5 @@
 /**
- * iAM Smart ITE client (sandbox environment)
+ * iAM Smart UAT client
  *
  * Uses the same CEK/KEK + AES-256-GCM encryption pattern as CorpID.
  * The same p12 KEK certificate is used for both systems.
@@ -14,7 +14,7 @@ const {
   decryptCEK,
 } = require('./crypto');
 
-const IAM_BASE = 'https://apigw-isit.staging-eid.gov.hk';
+const IAM_BASE = process.env.IAM_SMART_BASE_URL || 'https://apigw-isit.staging-eid.gov.hk';
 
 class IamSmartClient {
   constructor(clientID, clientSecret, privateKey) {
