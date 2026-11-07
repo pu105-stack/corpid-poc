@@ -231,6 +231,22 @@
   </div>
 </div>
 
+<!-- ANONYMOUS FORM PRE-FILL card (no login needed) -->
+<div class="card" id="anon-card">
+  <div class="step-label">Without Login</div>
+  <h2>Form Pre-filling without Login (Anonymous)</h2>
+  <p style="color:#555; font-size:0.9rem; line-height:1.6; margin-bottom:20px;">
+    Fill a form with your corporate &amp; personal data <strong>without logging in</strong>.
+    Scan the QR code with the <strong>iAM Smart testing app</strong>, choose the fields to share
+    in the CorpID Mini-program, and the data will appear below.
+  </p>
+  <a href="/api/anonymous-formfill" class="btn btn-secondary">📝 Pre-fill Form without Login</a>
+  <div id="anon-result" style="display:none; margin-top:20px; padding-top:16px; border-top:1px solid #e2e8f0;">
+    <div class="step-label" style="margin-bottom:10px;">Pre-filled Data (Anonymous)</div>
+    <div class="result-grid" id="anon-grid"></div>
+  </div>
+</div>
+
 <script>
   const params     = new URLSearchParams(location.search);
   const errorParam = params.get('error');
@@ -287,15 +303,19 @@
   function showPrefillData(data) {
     document.getElementById('prefill-waiting').style.display = 'none';
     document.getElementById('prefill-btn').disabled = false;
+    renderFields('prefill-grid', data);
+    document.getElementById('prefill-result').style.display = 'block';
+  }
 
-    // Callback data: { corp: {...CorpID Appendix A fields}, iam: {...iAM Smart content} }
+  // Data: { corp: {...CorpID Appendix A fields}, iam: {...iAM Smart content} }
+  function renderFields(gridId, data) {
     const fields = [
       ...flattenFields(data.corp, 'Corp'),
       ...flattenFields(data.iam,  'iAM Smart'),
     ];
+    if (fields.length === 0) fields.push(['Result', 'No fields were shared']);
 
-    const grid = document.getElementById('prefill-grid');
-    grid.replaceChildren(...fields.map(([label, value]) => {
+    document.getElementById(gridId).replaceChildren(...fields.map(([label, value]) => {
       const field = document.createElement('div');
       field.className = 'field';
       const labelEl = document.createElement('label');
@@ -306,9 +326,25 @@
       field.append(labelEl, valueEl);
       return field;
     }));
-
-    document.getElementById('prefill-result').style.display = 'block';
   }
+
+  // Anonymous flow hands its result over via sessionStorage (set by the callback page)
+  function showAnonymousResult() {
+    let raw = null;
+    try {
+      raw = sessionStorage.getItem('anonFormfillResult');
+      sessionStorage.removeItem('anonFormfillResult');
+    } catch (_) {}
+    if (!raw) return;
+
+    try {
+      renderFields('anon-grid', JSON.parse(raw));
+      document.getElementById('anon-result').style.display = 'block';
+      document.getElementById('anon-card').scrollIntoView({ behavior: 'smooth' });
+    } catch (_) {}
+    history.replaceState(null, '', '/');
+  }
+  showAnonymousResult();
 
   function flattenFields(obj, prefix) {
     if (obj === null || obj === undefined || obj === '') return [];

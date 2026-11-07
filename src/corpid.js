@@ -23,6 +23,26 @@ const CORPID_BASE = process.env.CORPID_BASE_URL || 'https://isit-apigw.corpid-np
 // Spec §2.4.2 names the field "message"; older examples and the sandbox used "msg"
 const errorText = (data) => data.message ?? data.msg;
 
+// Field names per CorpID API Spec Appendix A (5.1–5.3); iAM Smart fields per iAM Smart API Spec
+const CORPID_FORM_FIELDS = {
+  corpProfileFields: [
+    'ubi', 'crn', 'type', 'status', 'engName', 'chiName',
+    'engAddress', 'chiAddress', 'commencementDate', 'brcExpiryDate',
+  ],
+  nonHKResidentFields: ['enName', 'chName', 'email', 'countryCode', 'passport'],
+  eCorpFields:         ['eCorpAddr', 'eCorpEmailAddr', 'eCorpTelNo', 'eCorpFaxNo', 'eCorpWebsite'],
+  authorisationToken:  false,
+};
+const IAM_FORM_FIELDS = {
+  profileFields: ['idNo', 'enName', 'chName', 'birthDate', 'gender'],
+  eMEFields:     ['idNo', 'enName', 'chName', 'birthDate', 'gender'],
+};
+const FORM_INFO = {
+  formName: 'CorpID PoC – Account Registration',
+  formNum:  'POC-001',
+  formDesc: 'Demo form pre-filling via CorpID UAT',
+};
+
 class CorpIDClient {
   constructor(clientID, clientSecret, privateKey) {
     this.clientID     = clientID;
@@ -119,7 +139,6 @@ class CorpIDClient {
    * Returns: { ticketID, authByQR }
    */
   async initiateFormFilling({ cAccessToken, cOpenID, iAMToken, businessID, redirectURI, state }) {
-    // Field names per CorpID API Spec §4.6 + Appendix A (5.1–5.3)
     const res = await this._post('/api/eservice/v1/formFilling/initiateRequest', {
       businessID,
       cAccessToken,
@@ -128,28 +147,70 @@ class CorpIDClient {
       source:              'PC_Browser',
       redirectURI,
       state,
-      formName:            'CorpID PoC – Account Registration',
-      formNum:             'POC-001',
-      formDesc:            'Demo form pre-filling via CorpID UAT',
       callbackContentType: 'application/json',
-      authorisationToken:  false,
-
-      corpProfileFields: [
-        'ubi', 'crn', 'type', 'status', 'engName', 'chiName',
-        'engAddress', 'chiAddress', 'commencementDate', 'brcExpiryDate',
-      ],
-      nonHKResidentFields: ['enName', 'chName', 'email', 'countryCode', 'passport'],
-      eCorpFields:         ['eCorpAddr', 'eCorpEmailAddr', 'eCorpTelNo', 'eCorpFaxNo', 'eCorpWebsite'],
-      ...(iAMToken && {
-        profileFields: ['idNo', 'enName', 'chName', 'birthDate', 'gender'],
-        eMEFields:     ['idNo', 'enName', 'chName', 'birthDate', 'gender'],
-      }),
+      ...FORM_INFO,
+      ...CORPID_FORM_FIELDS,
+      ...(iAMToken && IAM_FORM_FIELDS),
     });
 
     if (res.code !== 'M00000') {
       throw new Error(`initiateFormFilling failed [${res.code}]: ${errorText(res)}`);
     }
     return res.content; // { ticketID, authByQR }
+  }
+
+  // -------------------------------------------------------------------------
+  // Anonymous form pre-filling (no service login): EXT-007 → EXT-001 → CBL-003 → EXT-008
+  // -------------------------------------------------------------------------
+
+  /** EXT-007: register the request. Returns { ticketID } for the QR page. */
+  async initiateAnonymousFormFilling({ businessID }) {
+    const res = await this._post('/api/eservice/v1/formFilling/anonymous/initiateRequest', {
+      businessID,
+      ...FORM_INFO,
+      ...CORPID_FORM_FIELDS,
+      ...IAM_FORM_FIELDS,
+    });
+
+    if (res.code !== 'M00000') {
+      throw new Error(`initiateAnonymousFormFilling failed [${res.code}]: ${errorText(res)}`);
+    }
+    return res.content;
+  }
+
+  /** EXT-001: CorpID's own QR page for anonymous requests (browser redirect, not an API call). */
+  anonymousQRUrl({ ticketID, redirectURI, state, scope, cScope }) {
+    const params = new URLSearchParams({
+      clientID:     this.clientID,
+      responseType: 'code',
+      source:       'PC_Browser',
+      redirectURI,
+      scope,
+      cScope,
+      ticketID,
+      state,
+      lang:         'en-US',
+    });
+    return `${CORPID_BASE}/api/eservice/v1/auth/getQR?${params}`;
+  }
+
+  /** EXT-008: fetch the authorised data. cAccessToken is single-use in this flow. */
+  async getAnonymousFormFillingResult({ cAccessToken, cOpenID, iAMToken }) {
+    const res = await this._post('/api/eservice/v1/formFilling/anonymous/getResult', {
+      cAccessToken,
+      cOpenID,
+      ...(iAMToken && { iAMToken }),
+    });
+
+    if (res.code !== 'M00000') {
+      throw new Error(`getAnonymousFormFillingResult failed [${res.code}]: ${errorText(res)}`);
+    }
+    // Spec §4.10.4 shows iAMContent beside content; §4.10.3 lists it as a content field
+    return {
+      corp:         res.content?.corp,
+      iAMContent:   res.iAMContent   ?? res.content?.iAMContent,
+      iAMSecretKey: res.iAMSecretKey ?? res.content?.iAMSecretKey,
+    };
   }
 
   // -------------------------------------------------------------------------

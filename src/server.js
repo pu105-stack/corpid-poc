@@ -203,17 +203,17 @@ app.get('/auth/callback', async (req, res) => {
     setCookie(res, 'corpid_session', sessionToken, 3600); // 1 hour
     res.redirect('/');
   } catch (err) {
-    console.error('[Auth] Error:', err.message);
-    let detail = err.message;
-    if (err.response) {
-      const body = err.response.data;
-      console.error('[Auth] Response status:', err.response.status);
-      console.error('[Auth] Response body:', JSON.stringify(body, null, 2));
-      detail = `HTTP ${err.response.status}: ${JSON.stringify(body)}`;
-    }
-    res.redirect(`/?error=${encodeURIComponent(detail)}`);
+    res.redirect(`/?error=${encodeURIComponent(describeError('[Auth]', err))}`);
   }
 });
+
+function describeError(logPrefix, err) {
+  console.error(logPrefix, 'Error:', err.message);
+  if (!err.response) return err.message;
+  console.error(logPrefix, 'Response status:', err.response.status);
+  console.error(logPrefix, 'Response body:', JSON.stringify(err.response.data, null, 2));
+  return `HTTP ${err.response.status}: ${JSON.stringify(err.response.data)}`;
+}
 
 // ---------------------------------------------------------------------------
 // STEP 3 — Frontend calls this to get session info (reads cookie)
@@ -235,6 +235,96 @@ app.get('/api/logout', (_req, res) => {
   clearCookie(res, 'corpid_session');
   res.redirect('/');
 });
+
+// ---------------------------------------------------------------------------
+// ANONYMOUS FORM PRE-FILL (no service login) — CorpID API Spec §3.4.1
+// ---------------------------------------------------------------------------
+
+const ANON_COOKIE   = 'corpid_anon';
+const ANON_IAM_SCOPE    = 'eidapi_formFilling';
+const ANON_CORPID_SCOPE = 'corpidapi_formFilling';
+
+// Codes from Developer Guide §3.6.1.3 (CBL-003) and §3.6.1.6 (EXT-008)
+const ANON_ERROR_TEXT = {
+  M60000: 'User cancelled the form pre-filling request',
+  M60001: 'User rejected the form pre-filling request',
+  M60002: 'Form pre-filling request failed, please retry later',
+  M60003: 'Form pre-filling request timed out, please retry',
+};
+
+// Step 1 — EXT-007 then redirect to CorpID's QR page (EXT-001)
+app.get('/api/anonymous-formfill', async (_req, res) => {
+  const businessID  = crypto.randomUUID();
+  const state       = crypto.randomUUID();
+  const redirectURI = `${BASE_URL}/auth/anonymous-formfill/callback`;
+
+  try {
+    const { ticketID } = await corpid.initiateAnonymousFormFilling({ businessID });
+    console.log('[AnonFormFill] initiated businessID:', businessID, 'ticketID:', ticketID);
+
+    setCookie(res, ANON_COOKIE, signPayload({ businessID, state, ts: Date.now() }), 600);
+    res.redirect(corpid.anonymousQRUrl({
+      ticketID, redirectURI, state, scope: ANON_IAM_SCOPE, cScope: ANON_CORPID_SCOPE,
+    }));
+  } catch (err) {
+    res.redirect(`/?error=${encodeURIComponent(describeError('[AnonFormFill]', err))}`);
+  }
+});
+
+// Step 2 — CBL-003 browser redirect back with code / cCode, then EXT-002 + EXT-008
+app.get('/auth/anonymous-formfill/callback', async (req, res) => {
+  const { businessID, code: iamCode, cCode, state, cError_code, error_code } = req.query;
+  clearCookie(res, ANON_COOKIE);
+
+  const callbackError = cError_code || error_code;
+  if (callbackError) {
+    const text = ANON_ERROR_TEXT[callbackError] || 'Form pre-filling failed';
+    return res.redirect(`/?error=${encodeURIComponent(`${text} (${callbackError})`)}`);
+  }
+
+  const pending = verifyPayload(parseCookies(req)[ANON_COOKIE]);
+  if (!pending || pending.state !== state || pending.businessID !== businessID) {
+    console.error('[AnonFormFill] state/businessID mismatch');
+    return res.redirect('/?error=invalid_state');
+  }
+  if (!cCode) return res.redirect('/?error=missing_auth_codes');
+
+  try {
+    const result = await fetchAnonymousResult({ iamCode, cCode });
+    sendAnonymousResult(res, result);
+  } catch (err) {
+    const text = ANON_ERROR_TEXT[err.message.match(/\[(M6000\d)\]/)?.[1]];
+    res.redirect(`/?error=${encodeURIComponent(text || describeError('[AnonFormFill]', err))}`);
+  }
+});
+
+async function fetchAnonymousResult({ iamCode, cCode }) {
+  // Both codes expire 1 minute after issuance; both tokens are single-use in this flow
+  const { cAccessToken, cOpenID } = await corpid.getToken(cCode);
+
+  let iAMToken;
+  if (iamCode) {
+    const { accessToken, openID } = await iamsmart.getToken(iamCode);
+    iAMToken = await iamsmart.encryptWithCEK({ accessToken, openID });
+  }
+
+  const { corp, iAMContent, iAMSecretKey } = await corpid.getAnonymousFormFillingResult({ cAccessToken, cOpenID, iAMToken });
+  const iam = iAMContent ? await iamsmart.decryptContent(iAMContent, iAMSecretKey) : null;
+  console.log('[AnonFormFill] result received. corp keys:', Object.keys(corp || {}), 'hasIam:', !!iam);
+  return { corp, iam };
+}
+
+// Hand the result to the page via sessionStorage: avoids storing personal data server-side
+// and works across serverless instances. Escaping "<" prevents a "</script>" breakout.
+function sendAnonymousResult(res, data) {
+  const json = JSON.stringify(data).replace(/</g, '\\u003c');
+  res.set('Cache-Control', 'no-store');
+  res.type('html').send(
+    `<!doctype html><meta charset="utf-8"><script>` +
+    `try { sessionStorage.setItem('anonFormfillResult', JSON.stringify(${json})); } catch (e) {}` +
+    `location.replace('/?anon=done');</script>`
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Form pre-fill — in-memory result store (keyed by businessID, 5-min TTL)
